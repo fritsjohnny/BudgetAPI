@@ -222,5 +222,19 @@ namespace BudgetAPI.Controllers
 
             return Ok();
         }
+
+        [HttpPost("OrderByPreviousMonth")]
+        public async Task<ActionResult> OrderByPreviousMonth([FromQuery] string reference)
+        {
+            try
+            {
+                await _expenseService.OrderByPreviousMonth(reference);
+                return Ok();
+            }
+            catch (Exception ex)
+            {
+                return Problem(ex.Message + "\n\n" + ex.InnerException?.Message);
+            }
+        }
     }
 }
