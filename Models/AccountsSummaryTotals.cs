@@ -8,6 +8,9 @@
         public decimal AvailableSpared { get; set; }
         public decimal DrawnBalance { get; set; }
         public decimal WithoutDrawnBalance { get; set; }
+        public decimal PreviousToReceive { get; set; }
         public decimal ToReceive { get; set; }
+        public decimal ToPay { get; set; }
+        public decimal PreviousToPay { get; set; }
     }
 }
