@@ -20,6 +20,7 @@ namespace BudgetAPI.Services
         Task<int> DeleteIncomes(Incomes income);
         bool IncomesExists(int id);
         bool ValidarUsuario(int incomeId);
+        Task OrderByPreviousMonth(string reference);
     }
 
     public class IncomeService : IIncomeService
@@ -247,5 +248,39 @@ namespace BudgetAPI.Services
             Position    = income.Position,
             Description = income.Description
         };
+
+        public async Task OrderByPreviousMonth(string reference)
+        {
+            if (string.IsNullOrWhiteSpace(reference) || reference.Length != 6)
+            {
+                throw new ArgumentException("Referência inválida. O formato esperado é 'yyyyMM'.");
+            }
+
+            string previousReference = DateTime.ParseExact(reference, "yyyyMM", null).AddMonths(-1).ToString("yyyyMM");
+
+            List<Incomes> previousIncomes = await _context.Incomes.Where(e => e.UserId == _user.Id && e.Reference == previousReference)
+                                                                  .OrderBy(e => e.Position)
+                                                                  .ToListAsync();
+
+            if (!previousIncomes.Any())
+            {
+                throw new InvalidOperationException("Nenhuma receita encontrada para o mês anterior.");
+            }
+
+            foreach (Incomes previousIncome in previousIncomes)
+            {
+                Incomes? income = await _context.Incomes.Where(e => e.UserId == _user.Id &&
+                                                                    e.Reference == reference &&
+                                                                    e.Description == previousIncome.Description)
+                                                        .FirstOrDefaultAsync();
+
+                if (income != null)
+                {
+                    income.Position = previousIncome.Position;
+                }
+            }
+
+            await _context.SaveChangesAsync();
+        }
     }
 }

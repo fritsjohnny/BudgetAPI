@@ -23,6 +23,7 @@ namespace BudgetAPI.Services
         Task<int> DeleteExpenses(Expenses expense);
         bool ExpensesExists(int id);
         bool ValidarUsuario(int expenseId);
+        Task OrderByPreviousMonth(string reference);
     }
 
     public class ExpenseService : IExpenseService
@@ -378,5 +379,40 @@ namespace BudgetAPI.Services
             Position    = expense.Position,
             Description = expense.Description
         };
+
+        public async Task OrderByPreviousMonth(string reference)
+        {
+            if (string.IsNullOrWhiteSpace(reference) || reference.Length != 6)
+            {
+                throw new ArgumentException("Referência inválida. O formato esperado é 'yyyyMM'.");
+            }
+
+            string previousReference = DateTime.ParseExact(reference, "yyyyMM", null).AddMonths(-1).ToString("yyyyMM");
+
+            List<Expenses> previousExpenses = await _context.Expenses.Where(e => e.UserId == _user.Id && e.Reference == previousReference)
+                                                                     .OrderBy(e => e.Position)
+                                                                     .ToListAsync();
+
+            if (!previousExpenses.Any())
+            {
+                throw new InvalidOperationException("Nenhuma despesa encontrada para o mês anterior.");
+            }
+
+            foreach (Expenses previousExpense in previousExpenses)
+            {
+                Expenses? expense = await _context.Expenses.Where(e => e.UserId == _user.Id &&
+                                                                       e.Reference == reference &&
+                                                                       e.Description == previousExpense.Description)
+                                                           .FirstOrDefaultAsync();
+
+                if (expense != null)
+                {
+                    expense.Position = previousExpense.Position;
+                    expense.DueDate = previousExpense.DueDate?.AddMonths(1);
+                }
+            }
+
+            await _context.SaveChangesAsync();
+        }
     }
 }
