@@ -330,7 +330,8 @@ namespace BudgetAPI.Services
                 People       = cardPosting.People,
                 Card         = cardPosting.Card,
                 InTheCycle   = invoiceDates != null && cardPosting.Date >= invoiceDates.InvoiceStart && cardPosting.Date <= invoiceDates.InvoiceEnd,
-                RelatedId    = cardPosting.RelatedId
+                RelatedId    = cardPosting.RelatedId,
+                Fixed        = cardPosting.Fixed
             };
 
             return cardPostingDTO;

@@ -20,5 +20,6 @@
         public Cards? Card { get; set; }
         public bool InTheCycle { get; set; }
         public int? RelatedId { get; set; }
+        public bool? Fixed { get; set; }
     }
 }

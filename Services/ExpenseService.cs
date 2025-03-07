@@ -369,7 +369,8 @@ namespace BudgetAPI.Services
                 CategoryId   = expense.CategoryId,
                 Scheduled    = expense.Scheduled,
                 PeopleId     = expense.PeopleId,
-                RelatedId    = expense.RelatedId
+                RelatedId    = expense.RelatedId,
+                Fixed        = expense.Fixed
             };
 
         private static ExpensesDTO2 ExpensesToComboList(Expenses expense) =>

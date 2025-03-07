@@ -20,5 +20,6 @@
         public bool? Scheduled { get; set; }
         public string? PeopleId { get; set; }
         public int? RelatedId { get; set; }
+        public bool? Fixed { get; set; }
     }
 }
