@@ -10,6 +10,7 @@ namespace BudgetAPI.Services
         IQueryable<Expenses> GetExpenses(int id);
         IQueryable<Expenses> GetExpensesByDescription(string description);
         IQueryable<ExpensesDTO> GetExpensesByReference(string reference);
+        IQueryable<ExpensesDTO> GetExpensesByReferences(string initialReference, string finalReference);
         IQueryable<ExpensesDTO> GetMyExpensesByReference(string reference);
         IQueryable<ExpensesDTO2> GetExpensesComboList(string reference);
         IQueryable<ExpensesByCategories> GetExpensesByCategories(string reference, int cardId);
@@ -63,6 +64,17 @@ namespace BudgetAPI.Services
         public IQueryable<ExpensesDTO> GetExpensesByReference(string reference)
         {
             IQueryable<ExpensesDTO>? expenses = _context.Expenses.Where(e => e.Reference == reference && e.UserId == _user.Id)
+                                                                 .OrderBy(e => e.Position)
+                                                                 .Select(e => ExpensesToDTO(e));
+
+            return expenses;
+        }
+
+        public IQueryable<ExpensesDTO> GetExpensesByReferences(string initialReference, string finalReference)
+        {
+            IQueryable<ExpensesDTO>? expenses = _context.Expenses.Where(e => string.Compare(e.Reference, initialReference) >= 0 && 
+                                                                             string.Compare(e.Reference, finalReference) <= 0 && 
+                                                                             e.UserId == _user.Id)
                                                                  .OrderBy(e => e.Position)
                                                                  .Select(e => ExpensesToDTO(e));
 

@@ -12,6 +12,7 @@ namespace BudgetAPI.Services
         IQueryable<CardsPostings> GetCardsPostingsByDescription(string description);
         IQueryable<CardsPostings> GetCardsPostings(string peopleId, string reference);
         IQueryable<CardsPostingsPeople> GetCardsPostingsPeople(int cardId, string reference);
+        IQueryable<CardsPostingsDTO> GetCardsPostingsByReferences(string initialReference, string finalReference);
         CardsPostingsPeople GetCardsPostingsByPeopleId(string? peopleId, string reference, int cardId);
         Task<int> PutCardsPostings(CardsPostings cardPosting);
         void PutCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths);
@@ -71,6 +72,18 @@ namespace BudgetAPI.Services
                                                                                 .Where(c => c.CardId == cardId && c.Reference == reference && c.Card!.UserId == _user.Id)
                                                                                 .OrderBy(c => c.Position)
                                                                                 .Select(c => CardPostingToDTO(c, invoiceDates));
+
+            return cardsPostings;
+        }
+
+        public IQueryable<CardsPostingsDTO> GetCardsPostingsByReferences(string initialReference, string finalReference)
+        {
+            IQueryable<CardsPostingsDTO>? cardsPostings = _context.CardsPostings.Include(c => c.Card)
+                                                                                .Where(c => string.Compare(c.Reference, initialReference) >= 0 &&
+                                                                                            string.Compare(c.Reference, finalReference) <= 0 &&
+                                                                                            c.Card!.UserId == _user.Id)
+                                                                                .OrderBy(c => c.Position)
+                                                                                .Select(c => CardPostingToDTO(c, null));
 
             return cardsPostings;
         }

@@ -50,9 +50,17 @@ namespace BudgetAPI.Controllers
         [HttpGet("reference/{reference}")]
         public async Task<ActionResult<IEnumerable<ExpensesDTO>>> GetExpensesByReference(string reference)
         {
-            List<ExpensesDTO>? expenses = await _expenseService.GetExpensesByReference(reference).ToListAsync();
+            List<ExpensesDTO> expenses = await _expenseService.GetExpensesByReference(reference).ToListAsync();
 
             return expenses;
+        }
+
+        [HttpGet("references")]
+        public async Task<ActionResult<IEnumerable<ExpensesDTO>>> GetExpensesByReferences(string initialReference, string finalReference)
+        {
+            List<ExpensesDTO> expenses = await _expenseService.GetExpensesByReferences(initialReference, finalReference).ToListAsync();
+
+            return Ok(expenses);
         }
 
         [HttpGet("reference2/{reference}")]
