@@ -66,6 +66,14 @@ namespace BudgetAPI.Controllers
             return cardsPostingsPeople;
         }
 
+        [HttpGet("references")]
+        public async Task<ActionResult<IEnumerable<CardsPostingsDTO>>> GetCardsPostingsByReferences(string initialReference, string finalReference)
+        {
+            List<CardsPostingsDTO>? cardsPostings = await _cardPostingService.GetCardsPostingsByReferences(initialReference, finalReference).ToListAsync();
+
+            return Ok(cardsPostings);
+        }
+
         [HttpGet("PeopleById")]
         public async Task<ActionResult<CardsPostingsPeople?>> GetCardsPostingsByPeopleIdAsync(string? peopleId, string reference, int cardId)
         {
