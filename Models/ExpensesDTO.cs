@@ -18,6 +18,7 @@
         public int? Parcels { get; set; }
         public decimal TotalToPay { get; set; }
         public int? CategoryId { get; set; }
+        public string? Category { get; set; }
         public bool? Scheduled { get; set; }
         public string? PeopleId { get; set; }
         public int? RelatedId { get; set; }
