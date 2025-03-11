@@ -19,6 +19,7 @@
         public int? RelatedId { get; set; }
         public People? People { get; set; }
         public Cards? Card { get; set; }
+        public Categories? Category { get; set; }
         public bool? Fixed { get; set; }
     }
 }

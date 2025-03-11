@@ -79,6 +79,7 @@ namespace BudgetAPI.Services
         public IQueryable<CardsPostingsDTO> GetCardsPostingsByReferences(string initialReference, string finalReference)
         {
             IQueryable<CardsPostingsDTO>? cardsPostings = _context.CardsPostings.Include(c => c.Card)
+                                                                                .Include(c => c.Category)
                                                                                 .Where(c => string.Compare(c.Reference, initialReference) >= 0 &&
                                                                                             string.Compare(c.Reference, finalReference) <= 0 &&
                                                                                             c.Card!.UserId == _user.Id)
@@ -340,6 +341,7 @@ namespace BudgetAPI.Services
                 Others       = cardPosting.Others,
                 Note         = cardPosting.Note,
                 CategoryId   = cardPosting.CategoryId,
+                Category     = cardPosting.Category?.Name,
                 People       = cardPosting.People,
                 Card         = cardPosting.Card,
                 InTheCycle   = invoiceDates != null && cardPosting.Date >= invoiceDates.InvoiceStart && cardPosting.Date <= invoiceDates.InvoiceEnd,

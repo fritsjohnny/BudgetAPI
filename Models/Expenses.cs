@@ -21,5 +21,6 @@
         public string? PeopleId { get; set; }
         public int? RelatedId { get; set; }
         public bool? Fixed { get; set; }
+        public Categories? Category { get; set; }
     }
 }

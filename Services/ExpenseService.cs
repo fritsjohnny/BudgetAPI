@@ -72,7 +72,8 @@ namespace BudgetAPI.Services
 
         public IQueryable<ExpensesDTO> GetExpensesByReferences(string initialReference, string finalReference)
         {
-            IQueryable<ExpensesDTO>? expenses = _context.Expenses.Where(e => string.Compare(e.Reference, initialReference) >= 0 && 
+            IQueryable<ExpensesDTO>? expenses = _context.Expenses.Include(c => c.Category)
+                                                                 .Where(e => string.Compare(e.Reference, initialReference) >= 0 && 
                                                                              string.Compare(e.Reference, finalReference) <= 0 && 
                                                                              e.UserId == _user.Id)
                                                                  .OrderBy(e => e.Position)
@@ -379,6 +380,7 @@ namespace BudgetAPI.Services
                 Parcels      = expense.Parcels,
                 TotalToPay   = expense.TotalToPay,
                 CategoryId   = expense.CategoryId,
+                Category     = expense.Category?.Name,
                 Scheduled    = expense.Scheduled,
                 PeopleId     = expense.PeopleId,
                 RelatedId    = expense.RelatedId,

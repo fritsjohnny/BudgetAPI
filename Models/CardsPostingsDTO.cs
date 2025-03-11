@@ -16,6 +16,7 @@
         public bool Others { get; set; }
         public string? Note { get; set; }
         public int? CategoryId { get; set; }
+        public string? Category { get; set; }
         public People? People { get; set; }
         public Cards? Card { get; set; }
         public bool InTheCycle { get; set; }
