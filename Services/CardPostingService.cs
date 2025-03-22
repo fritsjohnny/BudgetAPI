@@ -14,7 +14,7 @@ namespace BudgetAPI.Services
         IQueryable<CardsPostingsPeople> GetCardsPostingsPeople(int cardId, string reference);
         IQueryable<CardsPostingsDTO> GetCardsPostingsByReferences(string initialReference, string finalReference);
         CardsPostingsPeople GetCardsPostingsByPeopleId(string? peopleId, string reference, int cardId);
-        Task<int> PutCardsPostings(CardsPostings cardPosting);
+        Task<int> PutCardsPostings(CardsPostings cardPosting, bool repeatToNextMonths);
         void PutCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths);
         Task<int> PostCardsPostings(CardsPostings cardPosting);
         void PostCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths);
@@ -139,9 +139,26 @@ namespace BudgetAPI.Services
             return cardsPostingPeople;
         }
 
-        public Task<int> PutCardsPostings(CardsPostings cardPosting)
+        public Task<int> PutCardsPostings(CardsPostings cardPosting, bool repeatToNextMonths)
         {
             _context.Entry(cardPosting).State = EntityState.Modified;
+
+            if (repeatToNextMonths)
+            {
+                foreach (CardsPostings item in _context.CardsPostings.Where(cp => (cp.RelatedId == cardPosting.Id || cp.RelatedId == cardPosting.RelatedId) &&
+                                                                                  string.Compare(cp.Reference, cardPosting.Reference) > 0))
+                {
+                    item.CardId      = cardPosting.CardId;
+                    item.Date        = cardPosting.Date;
+                    item.Description = cardPosting.Description;
+                    item.TotalAmount = cardPosting.TotalAmount;
+                    item.Amount      = cardPosting.Amount;
+                    item.Fixed       = cardPosting.Fixed;
+                    item.CategoryId  = cardPosting.CategoryId;
+                    item.PeopleId    = cardPosting.PeopleId;
+                    item.Note        = cardPosting.Note;
+                }
+            }
 
             return _context.SaveChangesAsync();
         }
@@ -346,7 +363,7 @@ namespace BudgetAPI.Services
                 Card         = cardPosting.Card,
                 InTheCycle   = invoiceDates != null && cardPosting.Date >= invoiceDates.InvoiceStart && cardPosting.Date <= invoiceDates.InvoiceEnd,
                 RelatedId    = cardPosting.RelatedId,
-                Fixed        = cardPosting.Fixed
+                Fixed        = cardPosting.Fixed,
             };
 
             return cardPostingDTO;

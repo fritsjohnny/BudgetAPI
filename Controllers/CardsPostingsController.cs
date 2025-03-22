@@ -87,7 +87,7 @@ namespace BudgetAPI.Controllers
 
         // PUT: api/CardsPostings/5
         [HttpPut("{id}")]
-        public async Task<IActionResult> PutCardsPostings(int id, CardsPostings cardsPostings)
+        public async Task<IActionResult> PutCardsPostings(int id, CardsPostings cardsPostings, bool repeatToNextMonths)
         {
             if (id != cardsPostings.Id || !_cardPostingService.ValidarUsuario(id))
             {
@@ -96,7 +96,7 @@ namespace BudgetAPI.Controllers
 
             try
             {
-                await _cardPostingService.PutCardsPostings(cardsPostings);
+                await _cardPostingService.PutCardsPostings(cardsPostings, repeatToNextMonths);
             }
             catch (DbUpdateConcurrencyException dex)
             {
