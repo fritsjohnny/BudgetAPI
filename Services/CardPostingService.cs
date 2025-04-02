@@ -145,11 +145,18 @@ namespace BudgetAPI.Services
 
             if (repeatToNextMonths)
             {
+                DateTime date = cardPosting.Date;
+
                 foreach (CardsPostings item in _context.CardsPostings.Where(cp => (cp.RelatedId == cardPosting.Id || cp.RelatedId == cardPosting.RelatedId) &&
                                                                                   string.Compare(cp.Reference, cardPosting.Reference) > 0))
                 {
+                    if (cardPosting.Parcels == 1)
+                    {
+                        date = date.AddMonths(1);
+                    }
+
                     item.CardId      = cardPosting.CardId;
-                    item.Date        = cardPosting.Date;
+                    item.Date        = date;
                     item.Description = cardPosting.Description;
                     item.TotalAmount = cardPosting.TotalAmount;
                     item.Amount      = cardPosting.Amount;
