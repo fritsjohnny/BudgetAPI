@@ -147,7 +147,7 @@ namespace BudgetAPI.Services
             {
                 DateTime date = cardPosting.Date;
 
-                foreach (CardsPostings item in _context.CardsPostings.Where(cp => (cp.RelatedId == cardPosting.Id || cp.RelatedId == cardPosting.RelatedId) &&
+                foreach (CardsPostings item in _context.CardsPostings.Where(cp => (cp.RelatedId == cardPosting.Id || (cp.RelatedId != null && cp.RelatedId == cardPosting.RelatedId)) &&
                                                                                   string.Compare(cp.Reference, cardPosting.Reference) > 0))
                 {
                     if (cardPosting.Parcels == 1)
