@@ -73,8 +73,8 @@ namespace BudgetAPI.Services
         public IQueryable<ExpensesDTO> GetExpensesByReferences(string initialReference, string finalReference)
         {
             IQueryable<ExpensesDTO>? expenses = _context.Expenses.Include(c => c.Category)
-                                                                 .Where(e => string.Compare(e.Reference, initialReference) >= 0 && 
-                                                                             string.Compare(e.Reference, finalReference) <= 0 && 
+                                                                 .Where(e => string.Compare(e.Reference, initialReference) >= 0 &&
+                                                                             string.Compare(e.Reference, finalReference) <= 0 &&
                                                                              e.UserId == _user.Id)
                                                                  .OrderBy(e => e.Position)
                                                                  .Select(e => ExpensesToDTO(e));
@@ -294,7 +294,8 @@ namespace BudgetAPI.Services
                     TotalToPay   = expense.TotalToPay,
                     CategoryId   = expense.CategoryId,
                     Scheduled    = expense.Scheduled,
-                    PeopleId     = expense.PeopleId
+                    PeopleId     = expense.PeopleId,
+                    DueDay       = expense.DueDay,
                 };
 
                 // Add the difference to the first parcel
@@ -348,7 +349,8 @@ namespace BudgetAPI.Services
                         TotalToPay   = expense.TotalToPay,
                         CategoryId   = expense.CategoryId,
                         Scheduled    = expense.Scheduled,
-                        PeopleId     = expense.PeopleId
+                        PeopleId     = expense.PeopleId,
+                        DueDay       = expense.DueDay,
                     };
 
                     expensesList.Add(e);
@@ -384,7 +386,8 @@ namespace BudgetAPI.Services
                 Scheduled    = expense.Scheduled,
                 PeopleId     = expense.PeopleId,
                 RelatedId    = expense.RelatedId,
-                Fixed        = expense.Fixed
+                Fixed        = expense.Fixed,
+                DueDay       = expense.DueDay
             };
 
         private static ExpensesDTO2 ExpensesToComboList(Expenses expense) =>
@@ -423,7 +426,13 @@ namespace BudgetAPI.Services
                 if (expense != null)
                 {
                     expense.Position = previousExpense.Position;
-                    expense.DueDate = previousExpense.DueDate?.AddMonths(1);
+
+                    if (expense.DueDate == null && previousExpense.DueDate != null)
+                    {
+                        expense.DueDate  = previousExpense.DueDay != null ?
+                                           new DateTime(previousExpense.DueDate.Value.Year, previousExpense.DueDate.Value.Month, previousExpense.DueDay.Value).AddMonths(1) :
+                                           previousExpense.DueDate.Value.AddMonths(1);
+                    }
                 }
             }
 
