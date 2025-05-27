@@ -114,6 +114,7 @@ namespace BudgetAPI.Services
             Color      = card.Color,
             Background = card.Background,
             Disabled   = card.Disabled,
+            DueDay     = card.DueDay,
             //ClosingDay = card.ClosingDay
         };
     }
