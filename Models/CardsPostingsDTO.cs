@@ -22,5 +22,7 @@
         public bool InTheCycle { get; set; }
         public int? RelatedId { get; set; }
         public bool? Fixed { get; set; }
+        public DateTime? DueDate { get; set; }
+        public bool? IsPaid { get; set; }
     }
 }

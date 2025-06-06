@@ -371,6 +371,8 @@ namespace BudgetAPI.Services
                 InTheCycle   = invoiceDates != null && cardPosting.Date >= invoiceDates.InvoiceStart && cardPosting.Date <= invoiceDates.InvoiceEnd,
                 RelatedId    = cardPosting.RelatedId,
                 Fixed        = cardPosting.Fixed,
+                DueDate      = cardPosting.DueDate,
+                IsPaid       = cardPosting.IsPaid
             };
 
             return cardPostingDTO;
