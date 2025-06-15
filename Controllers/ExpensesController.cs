@@ -244,5 +244,13 @@ namespace BudgetAPI.Controllers
                 return Problem(ex.Message + "\n\n" + ex.InnerException?.Message);
             }
         }
+
+        [HttpGet("Notify")]
+        public async Task<ActionResult<List<Expenses>>> GetUpcomingOrOverdueExpenses(int daysAhead = 1)
+        {
+            var expenses = await _expenseService.GetUpcomingOrOverdueExpenses(daysAhead);
+
+            return expenses;
+        }
     }
 }

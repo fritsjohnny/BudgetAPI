@@ -25,6 +25,7 @@ namespace BudgetAPI.Services
         bool ExpensesExists(int id);
         bool ValidarUsuario(int expenseId);
         Task OrderByPreviousMonth(string reference);
+        Task<List<Expenses>> GetUpcomingOrOverdueExpenses(int daysAhead = 1);
     }
 
     public class ExpenseService : IExpenseService
@@ -437,6 +438,21 @@ namespace BudgetAPI.Services
             }
 
             await _context.SaveChangesAsync();
+        }
+
+        public async Task<List<Expenses>> GetUpcomingOrOverdueExpenses(int daysAhead = 1)
+        {
+            DateTime today   = DateTime.Today;
+            DateTime maxDate = today.AddDays(daysAhead);
+
+            var expenses = await _context.Expenses.Where(e => e.UserId == _user.Id &&
+                                                               e.DueDate != null &&
+                                                               e.Paid != e.ToPay &&
+                                                               (e.DueDate <= today || e.DueDate <= maxDate))
+                                                    .OrderBy(e => e.DueDate)
+                                                    .ToListAsync();
+
+            return expenses;
         }
     }
 }
