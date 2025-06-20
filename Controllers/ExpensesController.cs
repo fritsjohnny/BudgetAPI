@@ -50,9 +50,16 @@ namespace BudgetAPI.Controllers
         [HttpGet("reference/{reference}")]
         public async Task<ActionResult<IEnumerable<ExpensesDTO>>> GetExpensesByReference(string reference)
         {
-            List<ExpensesDTO> expenses = await _expenseService.GetExpensesByReference(reference).ToListAsync();
+            try
+            {
+                List<ExpensesDTO> expenses = await _expenseService.GetExpensesByReference(reference).ToListAsync();
 
-            return expenses;
+                return Ok(expenses);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Erro ao buscar despesas para a referência '{reference}': {ex.Message}");
+            }
         }
 
         [HttpGet("references")]
