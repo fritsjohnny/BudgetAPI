@@ -1,5 +1,4 @@
 ﻿using BudgetAPI.Authorization;
-using BudgetAPI.Data;
 using BudgetAPI.Models;
 using BudgetAPI.Services;
 using Microsoft.AspNetCore.Mvc;

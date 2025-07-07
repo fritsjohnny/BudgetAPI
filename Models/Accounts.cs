@@ -13,5 +13,6 @@ namespace BudgetAPI.Models
         public bool? CalcInGeneral { get; set; }
         public bool? Disabled { get; set; }
         public short? Position { get; set; }
+        public string? AppPackageName { get; set; }
     }
 }

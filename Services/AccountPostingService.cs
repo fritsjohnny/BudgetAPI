@@ -49,7 +49,7 @@ namespace BudgetAPI.Services
 		{
 			IOrderedQueryable<AccountsPostings>? accountsPostings = _context.AccountsPostings.Include(a => a.Account)
 																							 .Where(a => a.AccountId == accountId && a.Reference == reference && a.Account!.UserId == _user.Id)
-																							 .OrderBy(a => a.Position); ;
+																							 .OrderBy(a => a.Position);
 
 			return accountsPostings;
 		}
