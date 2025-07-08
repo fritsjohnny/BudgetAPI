@@ -12,6 +12,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Remove="Keys\firebase-adminsdk.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Keys\firebase-adminsdk.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
     <PackageReference Include="FirebaseAdmin" Version="3.2.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication" Version="2.2.0" />

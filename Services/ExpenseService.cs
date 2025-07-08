@@ -1,5 +1,7 @@
-﻿using BudgetAPI.Data;
+﻿using System.Globalization;
+using BudgetAPI.Data;
 using BudgetAPI.Models;
+using FirebaseAdmin.Messaging;
 using Microsoft.EntityFrameworkCore;
 
 namespace BudgetAPI.Services
@@ -26,18 +28,27 @@ namespace BudgetAPI.Services
         bool ValidarUsuario(int expenseId);
         Task OrderByPreviousMonth(string reference);
         Task<List<Expenses>> GetUpcomingOrOverdueExpenses(int daysAhead = 1);
+        Task SendUpcomingOrOverdueNotificationsAsync();
     }
 
     public class ExpenseService : IExpenseService
     {
         private readonly BudgetContext _context;
+        private readonly FirebaseNotificationService _firebase;
+        private readonly ILogger<FirebaseNotificationService> _logger;
 
         private readonly Users _user;
 
-        public ExpenseService(BudgetContext context, IHttpContextAccessor httpContextAccessor)
+        public ExpenseService(
+            BudgetContext context, 
+            IHttpContextAccessor httpContextAccessor, 
+            FirebaseNotificationService firebase,
+            ILogger<FirebaseNotificationService> logger)
         {
             _context = context;
             _user    = httpContextAccessor.HttpContext!.Items["User"] as Users ?? new Users();
+            _firebase = firebase;
+            _logger   = logger;
         }
 
         public IQueryable<Expenses> GetExpenses()
@@ -453,6 +464,55 @@ namespace BudgetAPI.Services
                                                     .ToListAsync();
 
             return expenses;
+        }
+
+        public async Task SendUpcomingOrOverdueNotificationsAsync()
+        {
+            DateTime today = DateTime.Today;
+            DateTime maxDate = today.AddDays(3);
+            var culture = new CultureInfo("pt-BR");
+
+            var users = await _context.Users.Where(u => !string.IsNullOrEmpty(u.FcmToken))
+                                                      .ToListAsync();
+
+            foreach (var user in users)
+            {
+                var expenses = await _context.Expenses.Where(e => e.UserId == user.Id &&
+                                                                            e.DueDate != null &&
+                                                                            e.Paid != e.ToPay &&
+                                                                            (e.DueDate <= today || e.DueDate <= maxDate))
+                                                                  .OrderBy(e => e.DueDate)
+                                                                  .ToListAsync();
+
+                foreach (Expenses? e in expenses)
+                {
+                    DateTime dueDate = e.DueDate!.Value.Date;
+                    int diffDays = (dueDate - today).Days;
+
+                    // Título
+                    string title = diffDays switch
+                    {
+                        < 0 when diffDays == -1 => "Despesa venceu ontem",
+                        < 0                      => $"Despesa vencida há {Math.Abs(diffDays)} dias",
+                        0                        => "Despesa vence hoje",
+                        > 0                      => $"Despesa a vencer em {diffDays} dia{(diffDays > 1 ? "s" : "")}"
+                    };
+
+                    // Corpo da mensagem
+                    string body =
+                $"🧾 {e.Description}\n" +
+                $"💸 {e.ToPay.ToString("C", culture)}\n" +
+                $"🗓️ {dueDate.ToString("dd/MM/yyyy")}";
+
+                    // Envio
+                    bool result = await _firebase.SendPushAsync(user.FcmToken!, title, body);
+
+                    if (result)
+                        _logger.LogInformation("📤 Push enviado: {Title} para {User}", title, user.Name);
+                    else
+                        _logger.LogWarning("⚠️ Falha ao enviar para {User}", user.Name);
+                }
+            }
         }
     }
 }

@@ -8,10 +8,12 @@ namespace BudgetAPI.Controllers
     public class PushTestController : ControllerBase
     {
         private readonly FirebaseNotificationService _firebase;
+        private readonly IExpenseService _expenseService;
 
-        public PushTestController(FirebaseNotificationService firebase)
+        public PushTestController(FirebaseNotificationService firebase, IExpenseService expenseService)
         {
             _firebase = firebase;
+            _expenseService = expenseService;
         }
 
         [HttpPost]
@@ -20,6 +22,13 @@ namespace BudgetAPI.Controllers
             var success = await _firebase.SendPushAsync(token, "Teste Budget", "Essa é uma notificação de teste");
             
             return success ? Ok("Push enviado com sucesso!") : StatusCode(500, "Falha ao enviar push");
+        }
+
+        [HttpPost("check-due")]
+        public async Task<IActionResult> CheckDue()
+        {
+            await _expenseService.SendUpcomingOrOverdueNotificationsAsync();
+            return Ok("Notificações enviadas.");
         }
     }
 }
