@@ -8,12 +8,12 @@ namespace BudgetAPI.Controllers
     public class PushTestController : ControllerBase
     {
         private readonly FirebaseNotificationService _firebase;
-        private readonly IExpenseService _expenseService;
+        private readonly INotificationJobService _notificationJobService;
 
-        public PushTestController(FirebaseNotificationService firebase, IExpenseService expenseService)
+        public PushTestController(FirebaseNotificationService firebase, INotificationJobService notificationJobService)
         {
             _firebase = firebase;
-            _expenseService = expenseService;
+            _notificationJobService = notificationJobService;
         }
 
         [HttpPost]
@@ -27,7 +27,7 @@ namespace BudgetAPI.Controllers
         [HttpPost("check-due")]
         public async Task<IActionResult> CheckDue()
         {
-            await _expenseService.SendUpcomingOrOverdueNotificationsAsync();
+            await _notificationJobService.EnviarNotificacoesGlobaisAsync(false);
             return Ok("Notificações enviadas.");
         }
     }

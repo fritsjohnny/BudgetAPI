@@ -12,14 +12,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Remove="Keys\firebase-adminsdk.json" />
+    <None Update="Keys\firebase-adminsdk.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
-  <ItemGroup>
-    <EmbeddedResource Include="Keys\firebase-adminsdk.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </EmbeddedResource>
-  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
@@ -37,6 +34,12 @@
 
   <ItemGroup>
     
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Keys\firebase-adminsdk.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <ProjectExtensions><VisualStudio><UserProperties appsettings_1json__JsonSchema="" /></VisualStudio></ProjectExtensions>

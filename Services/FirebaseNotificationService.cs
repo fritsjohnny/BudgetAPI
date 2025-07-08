@@ -9,15 +9,17 @@ namespace BudgetAPI.Services
         private static bool _initialized = false;
         private readonly ILogger<FirebaseNotificationService> _logger;
 
-        public FirebaseNotificationService(ILogger<FirebaseNotificationService> logger)
+        public FirebaseNotificationService(ILogger<FirebaseNotificationService> logger, IConfiguration configuration)
         {
             _logger = logger;
 
             if (!_initialized)
             {
+                string path = configuration["Firebase:KeyFilePath"];
+
                 FirebaseApp.Create(new AppOptions()
                 {
-                    Credential = GoogleCredential.FromFile("Keys/firebase-adminsdk.json") // ajuste se mudar o nome
+                    Credential = GoogleCredential.FromFile(path) 
                 });
                 _initialized = true;
             }
@@ -38,7 +40,7 @@ namespace BudgetAPI.Services
                 };
 
                 string response = await FirebaseMessaging.DefaultInstance.SendAsync(message);
-                _logger.LogInformation("✅ Push enviado: {Response}", response);
+                _logger.LogDebug("✅ Push enviado: {Response}", response);
                 return true;
             }
             catch (Exception ex)

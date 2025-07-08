@@ -58,6 +58,9 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddHostedService<KeepAliveService>();
 // Configuração do Firebase para notificações push
 builder.Services.AddSingleton<FirebaseNotificationService>();
+// Configuração do serviço de notificações diárias
+builder.Services.AddScoped<INotificationJobService, NotificationJobService>();
+builder.Services.AddHostedService<DailyNotificationHostedService>();
 
 
 var app = builder.Build();

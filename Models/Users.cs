@@ -10,5 +10,6 @@ namespace BudgetAPI.Models
 		[JsonIgnore]
 		public string Password { get; set; }
         public string? FcmToken { get; set; }
+        public string? TimezoneId { get; set; }
     }
 }

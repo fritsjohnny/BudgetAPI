@@ -14,7 +14,7 @@ namespace BudgetAPI.Services
 		void Delete(int id);
 		bool UserExists(UsersRegisterRequest user);
 		bool UserExists(int id, UsersUpdateRequest currentUser);
-        void UpdateFcmToken(int userId, string token);
+        void UpdateFcmToken(int userId, string token, string timezone);
     }
 
     public class UserService : IUserService
@@ -134,11 +134,12 @@ namespace BudgetAPI.Services
 			return user;
 		}
 
-        public void UpdateFcmToken(int userId, string token)
+        public void UpdateFcmToken(int userId, string token, string timezone)
         {
             Users user = GetUser(userId);
 
-            user.FcmToken = token;
+            user.FcmToken   = token;
+			user.TimezoneId = timezone;
 
             _context.Users.Update(user);
             _context.SaveChanges();
