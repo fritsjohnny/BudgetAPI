@@ -54,6 +54,8 @@ builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<IIncomeService, IncomeService>();
 builder.Services.AddScoped<IPeopleService, PeopleService>();
 builder.Services.AddHttpContextAccessor();
+// Serviço para manter a API acordada
+builder.Services.AddHostedService<KeepAliveService>();
 
 
 var app = builder.Build();

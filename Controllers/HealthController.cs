@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace BudgetAPI.Controllers
 {
-    [Authorize]
+    //[Authorize]
     [Route("api/[controller]")]
     [ApiController]
     public class HealthController : ControllerBase
