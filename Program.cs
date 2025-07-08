@@ -56,6 +56,8 @@ builder.Services.AddScoped<IPeopleService, PeopleService>();
 builder.Services.AddHttpContextAccessor();
 // Serviço para manter a API acordada
 builder.Services.AddHostedService<KeepAliveService>();
+// Configuração do Firebase para notificações push
+builder.Services.AddSingleton<FirebaseNotificationService>();
 
 
 var app = builder.Build();

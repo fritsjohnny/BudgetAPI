@@ -80,5 +80,20 @@ namespace BudgetAPI.Controllers
 
 			return Ok(new { message = "Usuário excluído!" });
 		}
-	}
+
+        [HttpPost("fcmtoken")]
+        public IActionResult UpdateFcmToken([FromBody] string token)
+        {
+            var user = HttpContext.Items["User"] as Users;
+
+            if (user == null)
+            {
+                return Problem("Usuário não autenticado.");
+            }
+
+            _userService.UpdateFcmToken(user.Id, token);
+
+            return Ok(new { message = "Token atualizado com sucesso!" });
+        }
+    }
 }

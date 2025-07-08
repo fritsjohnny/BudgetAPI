@@ -14,9 +14,10 @@ namespace BudgetAPI.Services
 		void Delete(int id);
 		bool UserExists(UsersRegisterRequest user);
 		bool UserExists(int id, UsersUpdateRequest currentUser);
-	}
+        void UpdateFcmToken(int userId, string token);
+    }
 
-	public class UserService : IUserService
+    public class UserService : IUserService
 	{
 		private readonly BudgetContext _context;
 		private readonly IJwtUtils _jwtUtils;
@@ -132,5 +133,15 @@ namespace BudgetAPI.Services
 
 			return user;
 		}
-	}
+
+        public void UpdateFcmToken(int userId, string token)
+        {
+            Users user = GetUser(userId);
+
+            user.FcmToken = token;
+
+            _context.Users.Update(user);
+            _context.SaveChanges();
+        }
+    }
 }

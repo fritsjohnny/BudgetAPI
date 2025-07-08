@@ -9,5 +9,6 @@ namespace BudgetAPI.Models
 		public string Login { get; set; }
 		[JsonIgnore]
 		public string Password { get; set; }
-	}
+        public string? FcmToken { get; set; }
+    }
 }
