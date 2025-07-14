@@ -6,97 +6,106 @@ using Microsoft.EntityFrameworkCore;
 
 namespace BudgetAPI.Controllers
 {
-	[Authorize]
-	[Route("api/[controller]")]
-	[ApiController]
-	public class CategoriesController : ControllerBase
-	{
-		private readonly ICategoryService _categoryService;
+    [Authorize]
+    [Route("api/[controller]")]
+    [ApiController]
+    public class CategoriesController : ControllerBase
+    {
+        private readonly ICategoryService _categoryService;
 
-		public CategoriesController(ICategoryService categoryService)
-		{
-			_categoryService = categoryService;
-		}
+        public CategoriesController(ICategoryService categoryService)
+        {
+            _categoryService = categoryService;
+        }
 
-		// GET: api/Categories
-		[HttpGet]
-		public async Task<ActionResult<IEnumerable<Categories>>> GetCategories()
-		{
-			return await _categoryService.GetCategories().ToListAsync();
-		}
+        // GET: api/Categories
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<Categories>>> GetCategories()
+        {
+            return await _categoryService.GetCategories().ToListAsync();
+        }
 
-		// GET: api/Categories/5
-		[HttpGet("{id}")]
-		public async Task<ActionResult<Categories>> GetCategories(int id)
-		{
-			Categories? categories = await _categoryService.GetCategories(id).FirstOrDefaultAsync();
+        // GET: api/Categories/5
+        [HttpGet("{id}")]
+        public async Task<ActionResult<Categories>> GetCategories(int id)
+        {
+            Categories? categories = await _categoryService.GetCategories(id).FirstOrDefaultAsync();
 
-			if (categories == null)
-			{
-				return NotFound();
-			}
+            if (categories == null)
+            {
+                return NotFound();
+            }
 
-			return categories;
-		}
+            return categories;
+        }
 
-		// PUT: api/Categories/5
-		[HttpPut("{id}")]
-		public async Task<IActionResult> PutCategories(int id, Categories category)
-		{
-			if (id != category.Id || !_categoryService.ValidarUsuario(category.UserId))
-			{
-				return BadRequest();
-			}
+        // PUT: api/Categories/5
+        [HttpPut("{id}")]
+        public async Task<IActionResult> PutCategories(int id, Categories category)
+        {
+            if (id != category.Id || !_categoryService.ValidarUsuario(category.UserId))
+            {
+                return BadRequest();
+            }
 
-			try
-			{
-				await _categoryService.PutCategories(category);
-			}
-			catch (DbUpdateConcurrencyException dex)
-			{
-				if (!_categoryService.CategoriesExists(id))
-				{
-					return NotFound();
-				}
+            try
+            {
+                await _categoryService.PutCategories(category);
+            }
+            catch (DbUpdateConcurrencyException dex)
+            {
+                if (!_categoryService.CategoriesExists(id))
+                {
+                    return NotFound();
+                }
 
-				return Problem(dex.Message);
-			}
-			catch (Exception ex)
-			{
-				return Problem(ex.Message);
-			}
+                return Problem(dex.Message);
+            }
+            catch (Exception ex)
+            {
+                return Problem(ex.Message);
+            }
 
-			return Ok();
-		}
+            return Ok();
+        }
 
-		// POST: api/Categories
-		[HttpPost]
-		public async Task<ActionResult<Categories>> PostCategories(Categories category)
-		{
-			await _categoryService.PostCategories(category);
+        // POST: api/Categories
+        [HttpPost]
+        public async Task<ActionResult<Categories>> PostCategories(Categories category)
+        {
+            await _categoryService.PostCategories(category);
 
-			return CreatedAtAction("GetCategories", new { id = category.Id }, category);
-		}
+            return CreatedAtAction("GetCategories", new { id = category.Id }, category);
+        }
 
-		// DELETE: api/Categories/5
-		[HttpDelete("{id}")]
-		public async Task<IActionResult> DeleteCategories(int id)
-		{
-			Categories? category = await _categoryService.GetCategories(id).FirstOrDefaultAsync();
+        // DELETE: api/Categories/5
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteCategories(int id)
+        {
+            Categories? category = await _categoryService.GetCategories(id).FirstOrDefaultAsync();
 
-			if (category == null)
-			{
-				return NotFound();
-			}
+            if (category == null)
+            {
+                return NotFound();
+            }
 
-			if (!_categoryService.ValidarUsuario(category.UserId))
-			{
-				return BadRequest();
-			}
+            if (!_categoryService.ValidarUsuario(category.UserId))
+            {
+                return BadRequest();
+            }
 
-			await _categoryService.DeleteCategories(category);
+            await _categoryService.DeleteCategories(category);
 
-			return Ok();
-		}
-	}
+            return Ok();
+        }
+
+        // GET: api/Categories/WithExpenses/2024-07
+        [HttpGet("WithExpenses/{reference}")]
+        public async Task<ActionResult<List<CategoriesDTO>>> GetCategoriesWithExpenseStatus(string reference)
+        {
+            List<CategoriesDTO> result = await _categoryService.GetCategoriesWithExpenseStatus(reference);
+
+            return Ok(result);
+        }
+    }
 }
