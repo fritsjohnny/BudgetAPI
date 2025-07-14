@@ -48,7 +48,9 @@ namespace BudgetAPI.Services
                                                Color           = c.Color,
                                                Background      = c.Background,
                                                Disabled        = c.Disabled,
-                                               //ClosingDay      = c.ClosingDay,
+                                               ClosingDay      = c.ClosingDay,
+                                               DueDay          = c.DueDay,
+                                               AppPackageName  = c.AppPackageName,
                                                CardInvoiceDate = cid != null ? new CardsInvoiceDate
                                                {
                                                    Id = cid.Id,
@@ -108,14 +110,15 @@ namespace BudgetAPI.Services
         private static CardsDTO CardToDTO(Cards card) =>
         new()
         {
-            Id         = card.Id,
-            UserId     = card.UserId,
-            Name       = card.Name,
-            Color      = card.Color,
-            Background = card.Background,
-            Disabled   = card.Disabled,
-            DueDay     = card.DueDay,
-            //ClosingDay = card.ClosingDay
+            Id             = card.Id,
+            UserId         = card.UserId,
+            Name           = card.Name,
+            Color          = card.Color,
+            Background     = card.Background,
+            Disabled       = card.Disabled,
+            DueDay         = card.DueDay,
+            ClosingDay     = card.ClosingDay,
+            AppPackageName = card.AppPackageName,
         };
     }
 }

@@ -84,7 +84,8 @@ namespace BudgetAPI.Services
             // Busca todas as despesas da referência que não têm categoria definida, mas têm Name
             List<Expenses> expenses = await _context.Expenses.Where(e => e.UserId == _user.Id &&
                                                                         e.Reference == reference &&
-                                                                        e.CategoryId == null)
+                                                                        e.CategoryId == null &&
+                                                                        e.CardId == null)
                                                              .ToListAsync();
 
             List<CategoriesDTO> result = categories.Select(cat => new CategoriesDTO
