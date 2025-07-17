@@ -12,10 +12,12 @@ namespace BudgetAPI.Controllers
     public class CardsPostingsController : ControllerBase
     {
         private readonly ICardPostingService _cardPostingService;
+        private readonly IExpenseService _expenseService;
 
-        public CardsPostingsController(ICardPostingService cardPostingService)
+        public CardsPostingsController(ICardPostingService cardPostingService, IExpenseService expenseService)
         {
             _cardPostingService = cardPostingService;
+            _expenseService     = expenseService;
         }
 
         // GET: api/CardsPostings
@@ -87,7 +89,7 @@ namespace BudgetAPI.Controllers
 
         // PUT: api/CardsPostings/5
         [HttpPut("{id}")]
-        public async Task<IActionResult> PutCardsPostings(int id, CardsPostings cardsPostings, bool repeatToNextMonths)
+        public async Task<IActionResult> PutCardsPostings(int id, CardsPostings cardsPostings, bool repeatToNextMonths, [FromQuery] int? expenseId)
         {
             if (id != cardsPostings.Id || !_cardPostingService.ValidarUsuario(id))
             {
@@ -96,7 +98,42 @@ namespace BudgetAPI.Controllers
 
             try
             {
+                CardsPostings? oldCardPosting = await _cardPostingService.GetCardsPostings(id).AsNoTracking().FirstOrDefaultAsync();
+
+                if (oldCardPosting == null)
+                {
+                    return NotFound();
+                }
+
+                if (expenseId.HasValue)
+                {
+                    try
+                    {
+                        // Reembolsa o valor anterior
+                        await _expenseService.RefundFromCardPosting(expenseId.Value, oldCardPosting.Amount);
+                    }
+                    catch (Exception ex)
+                    {
+                        return Problem($"Erro ao reembolsar valor antigo da despesa: {ex.Message}");
+                    }
+                }
+
                 await _cardPostingService.PutCardsPostings(cardsPostings, repeatToNextMonths);
+
+                if (expenseId.HasValue)
+                {
+                    try
+                    {
+                        // Deduz o novo valor
+                        await _expenseService.DeductFromCardPosting(expenseId.Value, cardsPostings.Amount);
+                    }
+                    catch (Exception ex)
+                    {
+                        return Problem($"Postagem atualizada, mas erro ao deduzir novo valor da despesa: {ex.Message}");
+                    }
+                }
+
+                return Ok();
             }
             catch (DbUpdateConcurrencyException dex)
             {
@@ -111,9 +148,8 @@ namespace BudgetAPI.Controllers
             {
                 return Problem(ex.Message);
             }
-
-            return Ok();
         }
+
 
         [HttpPut("SetPositions")]
         public async Task<ActionResult<CardsPostings>> SetPositions(List<CardsPostings> cardsPostings)
@@ -148,7 +184,7 @@ namespace BudgetAPI.Controllers
 
         // POST: api/CardsPostings
         [HttpPost]
-        public async Task<ActionResult<CardsPostings>> PostCardsPostings(CardsPostings cardsPostings)
+        public async Task<ActionResult<CardsPostings>> PostCardsPostings(CardsPostings cardsPostings, [FromQuery] int? expenseId)
         {
             try
             {
@@ -158,6 +194,9 @@ namespace BudgetAPI.Controllers
                 }
 
                 await _cardPostingService.PostCardsPostings(cardsPostings);
+
+                if (expenseId.HasValue)
+                    await _expenseService.DeductFromCardPosting(expenseId.Value, cardsPostings.Amount);
 
                 return await GetCardsPostings(cardsPostings.Id);
             }
@@ -193,7 +232,7 @@ namespace BudgetAPI.Controllers
 
         // DELETE: api/CardsPostings/5
         [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteCardsPostings(int id)
+        public async Task<IActionResult> DeleteCardsPostings(int id, [FromQuery] int? expenseId)
         {
             CardsPostings? cardPosting = await _cardPostingService.GetCardsPostings(id).FirstOrDefaultAsync();
 
@@ -208,6 +247,18 @@ namespace BudgetAPI.Controllers
             }
 
             await _cardPostingService.DeleteCardsPostings(cardPosting);
+
+            if (expenseId != null)
+            {
+                try
+                {
+                    await _expenseService.RefundFromCardPosting(expenseId.Value, cardPosting.Amount);
+                }
+                catch (Exception ex)
+                {
+                    return Problem(ex.Message);
+                }
+            }
 
             return Ok();
         }

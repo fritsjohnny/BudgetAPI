@@ -1,7 +1,5 @@
-﻿using System.Globalization;
-using BudgetAPI.Data;
+﻿using BudgetAPI.Data;
 using BudgetAPI.Models;
-using FirebaseAdmin.Messaging;
 using Microsoft.EntityFrameworkCore;
 
 namespace BudgetAPI.Services
@@ -28,6 +26,8 @@ namespace BudgetAPI.Services
         bool ValidarUsuario(int expenseId);
         Task OrderByPreviousMonth(string reference);
         Task<List<Expenses>> GetUpcomingOrOverdueExpenses(int daysAhead = 1);
+        Task DeductFromCardPosting(int expenseId, decimal amount);
+        Task RefundFromCardPosting(int expenseId, decimal amount);
     }
 
     public class ExpenseService : IExpenseService
@@ -39,8 +39,8 @@ namespace BudgetAPI.Services
         private readonly Users _user;
 
         public ExpenseService(
-            BudgetContext context, 
-            IHttpContextAccessor httpContextAccessor, 
+            BudgetContext context,
+            IHttpContextAccessor httpContextAccessor,
             FirebaseNotificationService firebase,
             ILogger<FirebaseNotificationService> logger)
         {
@@ -406,7 +406,8 @@ namespace BudgetAPI.Services
         {
             Id          = expense.Id,
             Position    = expense.Position,
-            Description = expense.Description
+            Description = expense.Description,
+            CategoryId  = expense.CategoryId
         };
 
         public async Task OrderByPreviousMonth(string reference)
@@ -463,6 +464,42 @@ namespace BudgetAPI.Services
                                                     .ToListAsync();
 
             return expenses;
+        }
+
+        public async Task DeductFromCardPosting(int expenseId, decimal amount)
+        {
+            var expense = await _context.Expenses.FirstOrDefaultAsync(e => e.Id == expenseId && e.UserId == _user.Id);
+
+            if (expense == null)
+                return;
+
+            expense.ToPay      -= amount;
+            expense.TotalToPay -= amount;
+
+            // Garante que valores pagos não ultrapassem o novo total
+            if (expense.Paid > expense.TotalToPay)
+                expense.Paid = expense.TotalToPay;
+
+            if (expense.ToPay < 0) expense.ToPay = 0;
+            if (expense.TotalToPay < 0) expense.TotalToPay = 0;
+
+            _context.Entry(expense).State = EntityState.Modified;
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task RefundFromCardPosting(int expenseId, decimal amount)
+        {
+            var expense = await _context.Expenses.FirstOrDefaultAsync(e => e.Id == expenseId && e.UserId == _user.Id);
+
+            if (expense == null)
+                return;
+
+            expense.ToPay      += amount;
+            expense.TotalToPay += amount;
+
+            _context.Entry(expense).State = EntityState.Modified;
+
+            await _context.SaveChangesAsync();
         }
     }
 }
