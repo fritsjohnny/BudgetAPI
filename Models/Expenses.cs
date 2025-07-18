@@ -4,9 +4,9 @@
     {
         public int Id { get; set; }
         public int UserId { get; set; }
-        public string Reference { get; set; }
+        public string? Reference { get; set; }
         public short? Position { get; set; }
-        public string Description { get; set; }
+        public string? Description { get; set; }
         public decimal ToPay{ get; set; }
         public decimal Paid { get; set; }
         public string? Note { get; set; }
@@ -22,6 +22,7 @@
         public int? RelatedId { get; set; }
         public bool? Fixed { get; set; }
         public int? DueDay { get; set; }
+        public decimal? ExpectedValue { get; set; }
         public Categories? Category { get; set; }
     }
 }
