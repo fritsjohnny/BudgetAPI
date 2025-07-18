@@ -265,14 +265,14 @@ namespace BudgetAPI.Controllers
         {
             try
             {
-                int result = await _expenseService.AjustarValorComBaseNaCategoria(id);
+                Expenses? result = await _expenseService.AjustarValorComBaseNaCategoria(id);
 
-                if (result == 0)
+                if (result == null)
                 {
                     return BadRequest("Não foi possível ajustar o valor da despesa. Verifique se há valor previsto e se a categoria foi localizada.");
                 }
 
-                return Ok(new { message = "Valor da despesa ajustado com sucesso." });
+                return Ok(result);
             }
             catch (InvalidOperationException ex)
             {

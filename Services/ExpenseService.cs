@@ -29,7 +29,7 @@ namespace BudgetAPI.Services
         Task<List<Expenses>> GetUpcomingOrOverdueExpenses(int daysAhead = 1);
         Task DeductFromCardPosting(int expenseId, decimal amount);
         Task RefundFromCardPosting(int expenseId, decimal amount);
-        Task<int> AjustarValorComBaseNaCategoria(int expenseId);
+        Task<Expenses?> AjustarValorComBaseNaCategoria(int expenseId);
     }
 
     public class ExpenseService : IExpenseService
@@ -501,12 +501,12 @@ namespace BudgetAPI.Services
             await _context.SaveChangesAsync();
         }
 
-        public async Task<int> AjustarValorComBaseNaCategoria(int expenseId)
+        public async Task<Expenses?> AjustarValorComBaseNaCategoria(int expenseId)
         {
             Expenses? expense = await _context.Expenses.FirstOrDefaultAsync(e => e.Id == expenseId && e.UserId == _user.Id);
 
             if (expense == null || !expense.ExpectedValue.HasValue)
-                return 0;
+                return null;
 
             if (expense.CategoryId.HasValue)
             {
@@ -518,7 +518,7 @@ namespace BudgetAPI.Services
                                                                      .FirstOrDefaultAsync(r => r.Category == expense.Description);
 
             if (summarizedCategory == null)
-                return 0;
+                return null;
 
             decimal novoValor = expense.ExpectedValue.Value - summarizedCategory.Amount.Value;
 
@@ -527,7 +527,9 @@ namespace BudgetAPI.Services
 
             _context.Entry(expense).State = EntityState.Modified;
 
-            return await _context.SaveChangesAsync();
+            await _context.SaveChangesAsync();
+
+            return expense;
         }
     }
 }
