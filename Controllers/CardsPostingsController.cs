@@ -12,12 +12,10 @@ namespace BudgetAPI.Controllers
     public class CardsPostingsController : ControllerBase
     {
         private readonly ICardPostingService _cardPostingService;
-        private readonly IExpenseService _expenseService;
 
-        public CardsPostingsController(ICardPostingService cardPostingService, IExpenseService expenseService)
+        public CardsPostingsController(ICardPostingService cardPostingService)
         {
             _cardPostingService = cardPostingService;
-            _expenseService     = expenseService;
         }
 
         // GET: api/CardsPostings
@@ -87,9 +85,17 @@ namespace BudgetAPI.Controllers
             return cardsPostingPeople;
         }
 
+        [HttpPut("SetPositions")]
+        public async Task<ActionResult<CardsPostings>> SetPositions(List<CardsPostings> cardsPostings)
+        {
+            await _cardPostingService.SetPositions(cardsPostings);
+
+            return Ok();
+        }
+
         // PUT: api/CardsPostings/5
         [HttpPut("{id}")]
-        public async Task<IActionResult> PutCardsPostings(int id, CardsPostings cardsPostings, bool repeatToNextMonths, [FromQuery] int? expenseId)
+        public async Task<IActionResult> PutCardsPostings(int id, CardsPostings cardsPostings, bool repeatToNextMonths)
         {
             if (id != cardsPostings.Id || !_cardPostingService.ValidarUsuario(id))
             {
@@ -98,42 +104,7 @@ namespace BudgetAPI.Controllers
 
             try
             {
-                CardsPostings? oldCardPosting = await _cardPostingService.GetCardsPostings(id).AsNoTracking().FirstOrDefaultAsync();
-
-                if (oldCardPosting == null)
-                {
-                    return NotFound();
-                }
-
-                if (expenseId.HasValue)
-                {
-                    try
-                    {
-                        // Reembolsa o valor anterior
-                        await _expenseService.RefundFromCardPosting(expenseId.Value, oldCardPosting.Amount);
-                    }
-                    catch (Exception ex)
-                    {
-                        return Problem($"Erro ao reembolsar valor antigo da despesa: {ex.Message}");
-                    }
-                }
-
                 await _cardPostingService.PutCardsPostings(cardsPostings, repeatToNextMonths);
-
-                if (expenseId.HasValue)
-                {
-                    try
-                    {
-                        // Deduz o novo valor
-                        await _expenseService.DeductFromCardPosting(expenseId.Value, cardsPostings.Amount);
-                    }
-                    catch (Exception ex)
-                    {
-                        return Problem($"Postagem atualizada, mas erro ao deduzir novo valor da despesa: {ex.Message}");
-                    }
-                }
-
-                return Ok();
             }
             catch (DbUpdateConcurrencyException dex)
             {
@@ -146,118 +117,125 @@ namespace BudgetAPI.Controllers
             }
             catch (Exception ex)
             {
-                return Problem(ex.Message);
+                // Verifica se é erro vindo do ExpenseService
+                if (ex.InnerException?.Message?.Contains("ExpenseService") == true ||
+                    ex.Message.Contains("ExpenseService"))
+                {
+                    return Problem($"Erro ao atualizar despesa relacionada: {ex.Message}");
+                }
+
+                // Erro genérico ou do CardPostingsService
+                return Problem($"Erro ao atualizar lançamento no cartão: {ex.Message}");
             }
-        }
-
-
-        [HttpPut("SetPositions")]
-        public async Task<ActionResult<CardsPostings>> SetPositions(List<CardsPostings> cardsPostings)
-        {
-            await _cardPostingService.SetPositions(cardsPostings);
 
             return Ok();
         }
 
         [HttpPut("AllParcels/{id}")]
-        public async Task<ActionResult<CardsPostings>> PutCardsPostingsWithParcels(int id, CardsPostings cardsPostings, bool repeat, int qtyMonths)
+        public async Task<IActionResult> PutCardsPostingsWithParcels(int id, CardsPostings cardsPostings, bool repeat, int qtyMonths)
         {
+            if (id != cardsPostings.Id || !_cardPostingService.ValidarUsuario(id))
+            {
+                return BadRequest();
+            }
+
             try
             {
-                if (id != cardsPostings.Id || !_cardPostingService.ValidarUsuario(id))
-                {
-                    return BadRequest();
-                }
-
-                await Task.Run(() =>
-                {
-                    _cardPostingService.PutCardsPostingsWithParcels(cardsPostings, repeat, qtyMonths);
-                });
-
-                return Ok();
+                await _cardPostingService.PutCardsPostingsWithParcels(cardsPostings, repeat, qtyMonths);
             }
             catch (Exception ex)
             {
-                return Problem(ex.Message);
+                // Verifica se é erro vindo do ExpenseService
+                if (ex.InnerException?.Message?.Contains("ExpenseService") == true ||
+                    ex.Message.Contains("ExpenseService"))
+                {
+                    return Problem($"Erro ao atualizar despesa relacionada: {ex.Message}");
+                }
+
+                // Erro genérico ou do CardPostingsService
+                return Problem($"Erro ao atualizar lançamento no cartão: {ex.Message}");
             }
+
+            return Ok();
         }
 
         // POST: api/CardsPostings
         [HttpPost]
-        public async Task<ActionResult<CardsPostings>> PostCardsPostings(CardsPostings cardsPostings, [FromQuery] int? expenseId)
+        public async Task<ActionResult<CardsPostings>> PostCardsPostings(CardsPostings cardsPostings)
         {
+            if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId))
+            {
+                return BadRequest();
+            }
+
             try
             {
-                if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId))
-                {
-                    return BadRequest();
-                }
-
                 await _cardPostingService.PostCardsPostings(cardsPostings);
-
-                if (expenseId.HasValue)
-                    await _expenseService.DeductFromCardPosting(expenseId.Value, cardsPostings.Amount);
 
                 return await GetCardsPostings(cardsPostings.Id);
             }
             catch (Exception ex)
             {
-                return Problem(ex.ToString() + "\n\n" + ex.InnerException?.Message);
+                if (ex.InnerException?.Message?.Contains("ExpenseService") == true ||
+                    ex.Message.Contains("ExpenseService"))
+                {
+                    return Problem($"Erro ao vincular lançamento à despesa: {ex.Message}");
+                }
+
+                return Problem($"Erro ao salvar lançamento: {ex.Message}");
             }
         }
 
         [HttpPost("AllParcels")]
         public async Task<ActionResult<CardsPostings>> PostCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths)
         {
+            if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId))
+            {
+                return BadRequest();
+            }
+
             try
             {
-                if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId))
-                {
-                    return BadRequest();
-                }
-
-                await Task.Run(() =>
-                {
-                    _cardPostingService.PostCardsPostingsWithParcels(cardsPostings, repeat, qtyMonths);
-                });
+                await _cardPostingService.PostCardsPostingsWithParcels(cardsPostings, repeat, qtyMonths);
 
                 return await GetCardsPostings(cardsPostings.Id);
-
             }
             catch (Exception ex)
             {
-                return Problem(ex.Message);
+                if (ex.InnerException?.Message?.Contains("ExpenseService") == true ||
+                    ex.Message.Contains("ExpenseService"))
+                {
+                    return Problem($"Erro ao vincular lançamento parcelado à despesa: {ex.Message}");
+                }
+
+                return Problem($"Erro ao salvar lançamento parcelado: {ex.Message}");
             }
         }
 
         // DELETE: api/CardsPostings/5
         [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteCardsPostings(int id, [FromQuery] int? expenseId)
+        public async Task<IActionResult> DeleteCardsPostings(int id)
         {
             CardsPostings? cardPosting = await _cardPostingService.GetCardsPostings(id).FirstOrDefaultAsync();
 
-            if (cardPosting == null)
-            {
-                return NotFound();
-            }
-
-            if (!_cardPostingService.ValidarUsuario(cardPosting.Id))
+            if (cardPosting == null || !_cardPostingService.ValidarUsuario(cardPosting.Id))
             {
                 return BadRequest();
             }
 
-            await _cardPostingService.DeleteCardsPostings(cardPosting);
-
-            if (expenseId != null)
+            try
             {
-                try
+                await _cardPostingService.DeleteCardsPostings(cardPosting);
+            }
+            catch (Exception ex)
+            {
+                if (ex.InnerException?.Message?.Contains("ExpenseService") == true ||
+                    ex.Message.Contains("ExpenseService"))
                 {
-                    await _expenseService.RefundFromCardPosting(expenseId.Value, cardPosting.Amount);
+                    return Problem($"Erro ao estornar valor da despesa vinculada: {ex.Message}");
                 }
-                catch (Exception ex)
-                {
-                    return Problem(ex.Message);
-                }
+
+                return Problem($"Erro ao excluir lançamento: {ex.Message}");
             }
 
             return Ok();
