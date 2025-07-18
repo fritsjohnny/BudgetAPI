@@ -20,7 +20,7 @@ namespace BudgetAPI.Controllers
         public async Task<IActionResult> SendPush([FromBody] string token)
         {
             var success = await _firebase.SendPushAsync(token, "Teste Budget", "Essa é uma notificação de teste");
-            
+
             return success ? Ok("Push enviado com sucesso!") : StatusCode(500, "Falha ao enviar push");
         }
 
@@ -28,7 +28,7 @@ namespace BudgetAPI.Controllers
         public async Task<IActionResult> CheckDue()
         {
             await _notificationJobService.EnviarNotificacoesGlobaisAsync(false);
-            return Ok("Notificações enviadas.");
+            return Ok(new { message = "Notificações enviadas." });
         }
     }
 }

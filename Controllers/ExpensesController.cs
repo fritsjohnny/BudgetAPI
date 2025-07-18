@@ -259,5 +259,29 @@ namespace BudgetAPI.Controllers
 
             return expenses;
         }
+
+        [HttpPost("AjustarPorCategoria/{id}")]
+        public async Task<IActionResult> AjustarPorCategoria(int id)
+        {
+            try
+            {
+                int result = await _expenseService.AjustarValorComBaseNaCategoria(id);
+
+                if (result == 0)
+                {
+                    return BadRequest("Não foi possível ajustar o valor da despesa. Verifique se há valor previsto e se a categoria foi localizada.");
+                }
+
+                return Ok(new { message = "Valor da despesa ajustado com sucesso." });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ex.Message); // Exceção lançada quando CategoryId está preenchido
+            }
+            catch (Exception ex)
+            {
+                return Problem($"Erro ao ajustar valor da despesa: {ex.Message}");
+            }
+        }
     }
 }
