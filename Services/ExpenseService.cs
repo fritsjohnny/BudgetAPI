@@ -518,10 +518,19 @@ namespace BudgetAPI.Services
             if (summarizedCategory == null)
                 throw new InvalidOperationException("Categoria não encontrada ou não consolidada.");
 
-            decimal novoValor = expense.ExpectedValue ?? 0 - summarizedCategory.Amount ?? 0;
+            // Recebimentos relacionados à despesa, sem categoria
+            decimal received = await _context.AccountsPostings
+                                     .Where(ap => ap.ExpenseId == expense.Id)
+                                     .SumAsync(ap => ap.Amount);
 
-            expense.ToPay      = Math.Max(novoValor, expense.Paid);
+            decimal paid       = Math.Abs(received);
+            decimal expected   = expense.ExpectedValue ?? 0;
+            decimal summarized = summarizedCategory.Amount ?? 0;
+            decimal newValue   = expected - summarized - paid;
+
+            expense.ToPay      = Math.Max(newValue, paid);
             expense.TotalToPay = expense.ToPay;
+            expense.Paid       = paid;
 
             _context.Entry(expense).State = EntityState.Modified;
 
