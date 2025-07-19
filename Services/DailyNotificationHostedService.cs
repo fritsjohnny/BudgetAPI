@@ -1,4 +1,7 @@
-﻿
+﻿using System.Net;
+using System.Net.Mail;
+using System.Text;
+
 namespace BudgetAPI.Services
 {
     public class DailyNotificationHostedService : IHostedService, IDisposable
@@ -53,6 +56,11 @@ namespace BudgetAPI.Services
 
         private async Task ExecuteTaskAsync(bool jaExecutouInicial)
         {
+            var logBuilder = new StringBuilder();
+
+            logBuilder.AppendLine($"[INÍCIO HostedService] {DateTime.UtcNow:dd/MM/yyyy HH:mm:ss} UTC");
+            logBuilder.AppendLine($"➡️ Execução {(jaExecutouInicial ? "agendada" : "imediata")}");
+
             _logger.LogError("🚀 Executando tarefa de notificação global em {0}", DateTime.Now);
 
             using var scope = _serviceProvider.CreateScope();
@@ -61,10 +69,44 @@ namespace BudgetAPI.Services
             try
             {
                 await jobService.EnviarNotificacoesGlobaisAsync(jaExecutouInicial);
+                logBuilder.AppendLine("✅ Execução da tarefa concluída com sucesso.");
             }
             catch (Exception ex)
             {
+                logBuilder.AppendLine($"❌ Erro ao executar tarefa: {ex.Message}");
                 _logger.LogError(ex, "❌ Erro ao executar notificação de background");
+            }
+
+            logBuilder.AppendLine($"[FIM HostedService] {DateTime.UtcNow:dd/MM/yyyy HH:mm:ss} UTC");
+
+            //if (!Debugger.IsAttached)
+            {
+                await SendDebugEmail("📋 Log - DailyNotificationHostedService", logBuilder.ToString());
+            }
+        }
+
+        private async Task SendDebugEmail(string subject, string body)
+        {
+            try
+            {
+                var message = new MailMessage();
+                message.From = new MailAddress("frits.johnny@gmail.com");
+                message.To.Add("johnny.frits@outlook.com");
+                message.Subject = subject;
+                message.Body = body;
+                message.IsBodyHtml = false;
+
+                using var client = new SmtpClient("smtp.gmail.com", 587)
+                {
+                    Credentials = new NetworkCredential("frits.johnny@gmail.com", "jyovlyendozbwhyi"),
+                    EnableSsl = true
+                };
+
+                await client.SendMailAsync(message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Erro ao enviar e-mail de log (HostedService)");
             }
         }
 

@@ -1,7 +1,11 @@
 ﻿using System.Globalization;
+using System.Net;
+using System.Net.Mail;
+using System.Text;
 using BudgetAPI.Data;
 using BudgetAPI.Models;
 using Microsoft.EntityFrameworkCore;
+
 
 namespace BudgetAPI.Services
 {
@@ -35,6 +39,15 @@ namespace BudgetAPI.Services
 
         public async Task EnviarNotificacoesGlobaisAsync(bool jaExecutouInicial)
         {
+            var logBuilder = new StringBuilder();
+
+            logBuilder.AppendLine($"[INÍCIO] Execução às {DateTime.UtcNow:dd/MM/yyyy HH:mm:ss} UTC");
+
+            int totalEnviados  = 0;
+            int totalFalhas    = 0;
+            int totalIgnorados = 0;
+
+
             var culture = new CultureInfo("pt-BR");
 
             List<Users> users = await _context.Users.Where(u => !string.IsNullOrEmpty(u.FcmToken) && !string.IsNullOrEmpty(u.TimezoneId))
@@ -60,6 +73,9 @@ namespace BudgetAPI.Services
 
                     if (tipo == NotificacaoTipo.Nenhuma && jaExecutouInicial)
                     {
+                        logBuilder.AppendLine($"⏩ Ignorado: {user.Name} ({horaLocal}h local)");
+                        totalIgnorados++;
+
                         _logger.LogDebug("⏩ Ignorando usuário {User} - hora local {Hour}", user.Name, horaLocal);
                         continue; // só envia notificações às 6h, 12h, 18h locais
                     }
@@ -67,7 +83,7 @@ namespace BudgetAPI.Services
                     IQueryable<Expenses> query = _context.Expenses.Where(e => e.UserId == user.Id &&
                                                                               e.DueDate != null &&
                                                                               e.Paid != e.ToPay);
-                                                                                    
+
 
                     if (tipo == NotificacaoTipo.Parciais)
                     {
@@ -102,9 +118,17 @@ namespace BudgetAPI.Services
                         bool result = await _firebase.SendPushAsync(user.FcmToken!, title, body);
 
                         if (result)
+                        {
+                            totalEnviados++;
+                            logBuilder.AppendLine($"✅ Enviado: {user.Name} - {title}");
                             _logger.LogDebug("📤 Push enviado: {Title} para {User}", title, user.Name);
+                        }
                         else
+                        {
+                            totalFalhas++;
+                            logBuilder.AppendLine($"⚠️ Falha: {user.Name} - {title}");
                             _logger.LogDebug("⚠️ Falha ao enviar para {User}", user.Name);
+                        }
                     }
                 }
                 catch (TimeZoneNotFoundException)
@@ -115,6 +139,39 @@ namespace BudgetAPI.Services
                 {
                     _logger.LogError(ex, "❌ Erro ao processar usuário {0}", user.Name);
                 }
+            }
+
+            logBuilder.AppendLine($"[FIM] Enviados: {totalEnviados}, Falhas: {totalFalhas}, Ignorados: {totalIgnorados}");
+            logBuilder.AppendLine($"[FIM] Término às {DateTime.UtcNow:dd/MM/yyyy HH:mm:ss} UTC");
+
+            //if (!Debugger.IsAttached)
+            {
+                await SendDebugEmail("📋 Log de Execução - Notificações", logBuilder.ToString());
+            }
+        }
+
+        private async Task SendDebugEmail(string subject, string body)
+        {
+            try
+            {
+                var message = new MailMessage();
+                message.From = new MailAddress("frits.johnny@gmail.com");
+                message.To.Add("johnny.frits@outlook.com");
+                message.Subject = subject;
+                message.Body = body;
+                message.IsBodyHtml = false;
+
+                using var client = new SmtpClient("smtp.gmail.com", 587)
+                {
+                    Credentials = new NetworkCredential("frits.johnny@gmail.com", "jyovlyendozbwhyi"),
+                    EnableSsl = true
+                };
+
+                await client.SendMailAsync(message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Erro ao enviar e-mail de log");
             }
         }
     }
