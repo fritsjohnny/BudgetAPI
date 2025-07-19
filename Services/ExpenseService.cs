@@ -29,7 +29,7 @@ namespace BudgetAPI.Services
         Task<List<Expenses>> GetUpcomingOrOverdueExpenses(int daysAhead = 1);
         Task DeductFromCardPosting(int expenseId, decimal amount);
         Task RefundFromCardPosting(int expenseId, decimal amount);
-        Task<Expenses?> AjustarValorComBaseNaCategoria(int expenseId);
+        Task<ExpensesDTO?> AjustarValorComBaseNaCategoria(int expenseId);
     }
 
     public class ExpenseService : IExpenseService
@@ -501,35 +501,33 @@ namespace BudgetAPI.Services
             await _context.SaveChangesAsync();
         }
 
-        public async Task<Expenses?> AjustarValorComBaseNaCategoria(int expenseId)
+        public async Task<ExpensesDTO?> AjustarValorComBaseNaCategoria(int expenseId)
         {
             Expenses? expense = await _context.Expenses.FirstOrDefaultAsync(e => e.Id == expenseId && e.UserId == _user.Id);
 
-            if (expense == null || !expense.ExpectedValue.HasValue)
+            if (expense == null)
                 return null;
 
             if (expense.CategoryId.HasValue)
-            {
                 throw new InvalidOperationException("A despesa já está vinculada a uma categoria.");
-            }
 
             // Usa o método que já consolida despesas e lançamentos de cartão
             ExpensesByCategories? summarizedCategory = await _context.GetExpensesByCategories(expense.Reference, expense.CardId ?? 0, _user.Id)
                                                                      .FirstOrDefaultAsync(r => r.Category == expense.Description);
 
             if (summarizedCategory == null)
-                return null;
+                throw new InvalidOperationException("Categoria não encontrada ou não consolidada.");
 
-            decimal novoValor = expense.ExpectedValue.Value - summarizedCategory.Amount.Value;
+            decimal novoValor = expense.ExpectedValue ?? 0 - summarizedCategory.Amount ?? 0;
 
-            expense.ToPay      = Math.Max(novoValor, 0);
+            expense.ToPay      = Math.Max(novoValor, expense.Paid);
             expense.TotalToPay = expense.ToPay;
 
             _context.Entry(expense).State = EntityState.Modified;
 
             await _context.SaveChangesAsync();
 
-            return expense;
+            return ExpensesToDTO(expense);
         }
     }
 }

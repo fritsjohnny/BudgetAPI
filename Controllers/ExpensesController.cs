@@ -265,7 +265,7 @@ namespace BudgetAPI.Controllers
         {
             try
             {
-                Expenses? result = await _expenseService.AjustarValorComBaseNaCategoria(id);
+                ExpensesDTO? result = await _expenseService.AjustarValorComBaseNaCategoria(id);
 
                 if (result == null)
                 {
