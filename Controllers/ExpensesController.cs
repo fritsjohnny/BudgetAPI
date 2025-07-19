@@ -221,21 +221,28 @@ namespace BudgetAPI.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteExpenses(int id)
         {
-            Expenses? expense = await _expenseService.GetExpenses(id).FirstOrDefaultAsync();
-
-            if (expense == null)
+            try
             {
-                return NotFound();
-            }
+                Expenses? expense = await _expenseService.GetExpenses(id).FirstOrDefaultAsync();
 
-            if (!_expenseService.ValidarUsuario(id))
+                if (expense == null)
+                {
+                    return NotFound();
+                }
+
+                if (!_expenseService.ValidarUsuario(id))
+                {
+                    return BadRequest();
+                }
+
+                await _expenseService.DeleteExpenses(expense);
+
+                return Ok();
+            }
+            catch (Exception ex)
             {
-                return BadRequest();
+                return Problem(ex.ToString() + "\n\n" + ex.InnerException?.Message);
             }
-
-            await _expenseService.DeleteExpenses(expense);
-
-            return Ok();
         }
 
         [HttpPost("OrderByPreviousMonth")]

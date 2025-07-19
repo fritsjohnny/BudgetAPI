@@ -141,74 +141,18 @@ namespace BudgetAPI.Services
             return cardsPostingPeople;
         }
 
-        public Task<int> PutCardsPostingsOld(CardsPostings cardPosting, bool repeatToNextMonths)
-        {
-            _context.Entry(cardPosting).State = EntityState.Modified;
-
-            if (repeatToNextMonths)
-            {
-                DateTime date = cardPosting.Date;
-
-                foreach (CardsPostings item in _context.CardsPostings.Where(cp => (cp.RelatedId == cardPosting.Id || (cp.RelatedId != null && cp.RelatedId == cardPosting.RelatedId)) &&
-                                                                                  string.Compare(cp.Reference, cardPosting.Reference) > 0))
-                {
-                    if (cardPosting.Parcels == 1)
-                    {
-                        date = date.AddMonths(1);
-                    }
-
-                    item.CardId      = cardPosting.CardId;
-                    item.Date        = date;
-                    item.Description = cardPosting.Description;
-                    item.TotalAmount = cardPosting.TotalAmount;
-                    item.Amount      = cardPosting.Amount;
-                    item.Fixed       = cardPosting.Fixed;
-                    item.CategoryId  = cardPosting.CategoryId;
-                    item.PeopleId    = cardPosting.PeopleId;
-                    item.Note        = cardPosting.Note;
-                }
-            }
-
-            return _context.SaveChangesAsync();
-        }
-
         public async Task PutCardsPostings(CardsPostings cardPosting, bool repeatToNextMonths)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
             {
-                CardsPostings? original = await _context.CardsPostings.AsNoTracking().FirstOrDefaultAsync(cp => cp.Id == cardPosting.Id && cp.Card!.UserId == _user.Id);
-
-                // REFUND do valor antigo
-                if (original?.ExpenseId != null)
-                {
-                    try
-                    {
-                        await _expenseService.RefundFromCardPosting(original.ExpenseId.Value, original.Amount);
-                    }
-                    catch (Exception ex)
-                    {
-                        throw new Exception($"Erro no ExpenseService (Refund): {ex.Message}", ex);
-                    }
-                }
-
                 _context.Entry(cardPosting).State = EntityState.Modified;
 
                 await _context.SaveChangesAsync();
 
-                // DEDUCT do novo valor
                 if (cardPosting.ExpenseId.HasValue)
-                {
-                    try
-                    {
-                        await _expenseService.DeductFromCardPosting(cardPosting.ExpenseId.Value, cardPosting.Amount);
-                    }
-                    catch (Exception ex)
-                    {
-                        throw new Exception($"Erro no ExpenseService (Deduct): {ex.Message}", ex);
-                    }
-                }
+                    await _expenseService.AjustarValorComBaseNaCategoria(cardPosting.ExpenseId.Value);
 
                 await transaction.CommitAsync();
             }
@@ -219,46 +163,17 @@ namespace BudgetAPI.Services
             }
         }
 
-        public void PutCardsPostingsWithParcelsOld(CardsPostings cardsPostings, bool repeat, int qtyMonths)
-        {
-            _context.Entry(cardsPostings).State = EntityState.Modified;
-
-            List<CardsPostings>? cardsPostingsList = repeat ?
-                                                     RepeatCardsPostings(cardsPostings, qtyMonths) :
-                                                     GenerateCardsPostings(cardsPostings);
-
-            foreach (CardsPostings cp in cardsPostingsList.Skip(1))
-            {
-                _context.CardsPostings.Add(cp);
-
-                _context.SaveChanges();
-            }
-        }
-
-        public async Task PutCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths)
+        public async Task PutCardsPostingsWithParcels(CardsPostings cardPosting, bool repeat, int qtyMonths)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
             {
-                // REFUND do valor atual, se tiver ExpenseId
-                if (cardsPostings.ExpenseId.HasValue)
-                {
-                    try
-                    {
-                        await _expenseService.RefundFromCardPosting(cardsPostings.ExpenseId.Value, cardsPostings.Amount);
-                    }
-                    catch (Exception ex)
-                    {
-                        throw new Exception($"Erro no ExpenseService (Refund): {ex.Message}", ex);
-                    }
-                }
-
-                _context.Entry(cardsPostings).State = EntityState.Modified;
+                _context.Entry(cardPosting).State = EntityState.Modified;
 
                 List<CardsPostings>? cardsPostingsList = repeat ?
-                                                         RepeatCardsPostings(cardsPostings, qtyMonths) :
-                                                         GenerateCardsPostings(cardsPostings);
+                                                         RepeatCardsPostings(cardPosting, qtyMonths) :
+                                                         GenerateCardsPostings(cardPosting);
 
                 foreach (CardsPostings cp in cardsPostingsList.Skip(1))
                 {
@@ -266,18 +181,8 @@ namespace BudgetAPI.Services
                     _context.SaveChanges();
                 }
 
-                // DEDUCT do novo valor
-                if (cardsPostings.ExpenseId.HasValue)
-                {
-                    try
-                    {
-                        await _expenseService.DeductFromCardPosting(cardsPostings.ExpenseId.Value, cardsPostings.Amount);
-                    }
-                    catch (Exception ex)
-                    {
-                        throw new Exception($"Erro no ExpenseService (Deduct): {ex.Message}", ex);
-                    }
-                }
+                if (cardPosting.ExpenseId.HasValue)
+                    await _expenseService.AjustarValorComBaseNaCategoria(cardPosting.ExpenseId.Value);
 
                 await transaction.CommitAsync();
             }
@@ -286,22 +191,6 @@ namespace BudgetAPI.Services
                 await transaction.RollbackAsync();
                 throw new Exception($"Erro no CardPostingService.PutCardsPostingsWithParcels: {ex.Message}", ex);
             }
-        }
-
-        public Task PostCardsPostingsOld(CardsPostings cardPosting)
-        {
-            // Se a pessoa já existe...
-            if (_context.People.FirstOrDefault(p => p.Id == cardPosting.PeopleId && p.UserId == _user.Id) != null)
-            {
-                cardPosting.People = null; //...então remove para não tentar inserir
-            }
-
-            cardPosting.Position = (short)((_context.CardsPostings.Include(c => c.Card)
-                                                                  .Where(c => c.Reference == cardPosting.Reference && c.CardId == cardPosting.CardId && c.Card!.UserId == _user.Id).Max(c => c.Position) ?? 0) + 1);
-
-            _context.CardsPostings.Add(cardPosting);
-
-            return _context.SaveChangesAsync();
         }
 
         public async Task PostCardsPostings(CardsPostings cardPosting)
@@ -325,16 +214,7 @@ namespace BudgetAPI.Services
                 await _context.SaveChangesAsync();
 
                 if (cardPosting.ExpenseId.HasValue)
-                {
-                    try
-                    {
-                        await _expenseService.DeductFromCardPosting(cardPosting.ExpenseId.Value, cardPosting.Amount);
-                    }
-                    catch (Exception ex)
-                    {
-                        throw new Exception($"Erro no ExpenseService (Deduct): {ex.Message}", ex);
-                    }
-                }
+                    await _expenseService.AjustarValorComBaseNaCategoria(cardPosting.ExpenseId.Value);
 
                 await transaction.CommitAsync();
             }
@@ -345,71 +225,33 @@ namespace BudgetAPI.Services
             }
         }
 
-        public void PostCardsPostingsWithParcelsOld(CardsPostings cardsPostings, bool repeat, int qtyMonths)
-        {
-            List<CardsPostings>? cardsPostingsList = repeat ?
-                                                     RepeatCardsPostings(cardsPostings, qtyMonths) :
-                                                     GenerateCardsPostings(cardsPostings);
-
-            CardsPostings? firstCardsPostings = null;
-
-            foreach (CardsPostings cp in cardsPostingsList)
-            {
-                _context.CardsPostings.Add(cp);
-
-                _context.SaveChanges();
-
-                if (firstCardsPostings == null)
-                {
-                    firstCardsPostings = cp;
-
-                    // Update the input object with the details of the first CardsPostings
-                    cardsPostings.Id     = firstCardsPostings.Id;
-                    cardsPostings.Amount = firstCardsPostings.Amount;
-                }
-                else
-                {
-                    cp.RelatedId = firstCardsPostings.Id;
-                    _context.SaveChanges();
-                }
-            }
-        }
-
-        public async Task PostCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths)
+        public async Task PostCardsPostingsWithParcels(CardsPostings cardPosting, bool repeat, int qtyMonths)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
             {
                 List<CardsPostings>? cardsPostingsList = repeat ?
-                                                         RepeatCardsPostings(cardsPostings, qtyMonths) :
-                                                         GenerateCardsPostings(cardsPostings);
+                                                         RepeatCardsPostings(cardPosting, qtyMonths) :
+                                                         GenerateCardsPostings(cardPosting);
 
                 CardsPostings? firstCardsPostings = null;
 
                 foreach (CardsPostings cp in cardsPostingsList)
                 {
+                    if (firstCardsPostings == null)
+                        cp.ExpenseId = cardPosting.ExpenseId;
+
                     _context.CardsPostings.Add(cp);
+
                     await _context.SaveChangesAsync();
 
                     if (firstCardsPostings == null)
                     {
                         firstCardsPostings = cp;
 
-                        cardsPostings.Id     = cp.Id;
-                        cardsPostings.Amount = cp.Amount;
-
-                        if (cp.ExpenseId.HasValue)
-                        {
-                            try
-                            {
-                                await _expenseService.DeductFromCardPosting(cp.ExpenseId.Value, cp.Amount);
-                            }
-                            catch (Exception ex)
-                            {
-                                throw new Exception($"Erro no ExpenseService (Deduct): {ex.Message}", ex);
-                            }
-                        }
+                        cardPosting.Id     = cp.Id;
+                        cardPosting.Amount = cp.Amount;
                     }
                     else
                     {
@@ -418,6 +260,9 @@ namespace BudgetAPI.Services
                     }
                 }
 
+                if (cardPosting.ExpenseId.HasValue)
+                    await _expenseService.AjustarValorComBaseNaCategoria(cardPosting.ExpenseId.Value);
+
                 await transaction.CommitAsync();
             }
             catch (Exception ex)
@@ -425,21 +270,6 @@ namespace BudgetAPI.Services
                 await transaction.RollbackAsync();
                 throw new Exception($"Erro no CardPostingService.PostCardsPostingsWithParcels: {ex.Message}", ex);
             }
-        }
-
-        public async Task<int> DeleteCardsPostingsOld(CardsPostings cardPosting)
-        {
-            // Find all the CardsPostings with the RelatedId equal to the Id of the cardPosting to be deleted
-            var relatedCardsPostings = _context.CardsPostings.Where(cp => cp.RelatedId == cardPosting.Id);
-
-            // Remove all found CardsPostings
-            _context.CardsPostings.RemoveRange(relatedCardsPostings);
-
-            // Remove the original cardPosting
-            _context.CardsPostings.Remove(cardPosting);
-
-            // Save changes and return the number of affected entries
-            return await _context.SaveChangesAsync();
         }
 
         public async Task DeleteCardsPostings(CardsPostings cardPosting)
@@ -461,16 +291,7 @@ namespace BudgetAPI.Services
                 await _context.SaveChangesAsync();
 
                 if (cardPosting.ExpenseId.HasValue)
-                {
-                    try
-                    {
-                        await _expenseService.RefundFromCardPosting(cardPosting.ExpenseId.Value, cardPosting.Amount);
-                    }
-                    catch (Exception ex)
-                    {
-                        throw new Exception($"Erro no ExpenseService (Refund): {ex.Message}", ex);
-                    }
-                }
+                    await _expenseService.AjustarValorComBaseNaCategoria(cardPosting.ExpenseId.Value);
 
                 await transaction.CommitAsync();
             }

@@ -161,7 +161,7 @@ namespace BudgetAPI.Controllers
 
         // POST: api/CardsPostings
         [HttpPost]
-        public async Task<ActionResult<CardsPostings>> PostCardsPostings(CardsPostings cardsPostings)
+        public async Task<ActionResult<CardsPostings?>> PostCardsPostings(CardsPostings cardsPostings)
         {
             if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId))
             {
@@ -187,7 +187,7 @@ namespace BudgetAPI.Controllers
         }
 
         [HttpPost("AllParcels")]
-        public async Task<ActionResult<CardsPostings>> PostCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths)
+        public async Task<ActionResult<CardsPostings?>> PostCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths)
         {
             if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId))
             {

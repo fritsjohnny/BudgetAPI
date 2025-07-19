@@ -27,8 +27,6 @@ namespace BudgetAPI.Services
         bool ValidarUsuario(int expenseId);
         Task OrderByPreviousMonth(string reference);
         Task<List<Expenses>> GetUpcomingOrOverdueExpenses(int daysAhead = 1);
-        Task DeductFromCardPosting(int expenseId, decimal amount);
-        Task RefundFromCardPosting(int expenseId, decimal amount);
         Task<ExpensesDTO?> AjustarValorComBaseNaCategoria(int expenseId);
     }
 
@@ -233,7 +231,10 @@ namespace BudgetAPI.Services
             var relatedExpenses = _context.Expenses.Where(e => e.RelatedId == expense.Id);
 
             // Remove all found Expenses
-            _context.Expenses.RemoveRange(relatedExpenses);
+            if (relatedExpenses.Any())
+            {
+                _context.Expenses.RemoveRange(relatedExpenses);
+            }
 
             // Remove the original expense
             _context.Expenses.Remove(expense);
@@ -455,54 +456,21 @@ namespace BudgetAPI.Services
             DateTime today   = DateTime.Today;
             DateTime maxDate = today.AddDays(daysAhead);
 
-            var expenses = await _context.Expenses.Where(e => e.UserId == _user.Id &&
-                                                               e.DueDate != null &&
-                                                               e.Paid != e.ToPay &&
-                                                               (e.DueDate <= today || e.DueDate <= maxDate))
-                                                    .OrderBy(e => e.DueDate)
-                                                    .ToListAsync();
+            List<Expenses>? expenses = await _context.Expenses.Where(e => e.UserId == _user.Id &&
+                                                                      e.DueDate != null &&
+                                                                      e.Paid != e.ToPay &&
+                                                                      (e.DueDate <= today || e.DueDate <= maxDate))
+                                                               .OrderBy(e => e.DueDate)
+                                                               .ToListAsync();
 
             return expenses;
         }
 
-        public async Task DeductFromCardPosting(int expenseId, decimal amount)
-        {
-            var expense = await _context.Expenses.FirstOrDefaultAsync(e => e.Id == expenseId && e.UserId == _user.Id);
-
-            if (expense == null)
-                return;
-
-            expense.ToPay      -= amount;
-            expense.TotalToPay -= amount;
-
-            // Garante que valores pagos não ultrapassem o novo total
-            if (expense.Paid > expense.TotalToPay)
-                expense.Paid = expense.TotalToPay;
-
-            if (expense.ToPay < 0) expense.ToPay = 0;
-            if (expense.TotalToPay < 0) expense.TotalToPay = 0;
-
-            _context.Entry(expense).State = EntityState.Modified;
-            await _context.SaveChangesAsync();
-        }
-
-        public async Task RefundFromCardPosting(int expenseId, decimal amount)
-        {
-            var expense = await _context.Expenses.FirstOrDefaultAsync(e => e.Id == expenseId && e.UserId == _user.Id);
-
-            if (expense == null)
-                return;
-
-            expense.ToPay      += amount;
-            expense.TotalToPay += amount;
-
-            _context.Entry(expense).State = EntityState.Modified;
-
-            await _context.SaveChangesAsync();
-        }
-
         public async Task<ExpensesDTO?> AjustarValorComBaseNaCategoria(int expenseId)
         {
+            if (expenseId == 0)
+                return null;
+
             Expenses? expense = await _context.Expenses.FirstOrDefaultAsync(e => e.Id == expenseId && e.UserId == _user.Id);
 
             if (expense == null)
@@ -512,20 +480,16 @@ namespace BudgetAPI.Services
                 throw new InvalidOperationException("A despesa já está vinculada a uma categoria.");
 
             // Usa o método que já consolida despesas e lançamentos de cartão
-            ExpensesByCategories? summarizedCategory = await _context.GetExpensesByCategories(expense.Reference, expense.CardId ?? 0, _user.Id)
-                                                                     .FirstOrDefaultAsync(r => r.Category == expense.Description);
-
-            if (summarizedCategory == null)
-                throw new InvalidOperationException("Categoria não encontrada ou não consolidada.");
+            ExpensesByCategories? summarizedCategory = await _context.GetExpensesByCategories(expense.Reference!, expense.CardId ?? 0, _user.Id)
+                                                                     .FirstOrDefaultAsync(r => r.Category!.TrimEnd() == expense.Description!.TrimEnd());
 
             // Recebimentos relacionados à despesa, sem categoria
-            decimal received = await _context.AccountsPostings
-                                     .Where(ap => ap.ExpenseId == expense.Id)
-                                     .SumAsync(ap => ap.Amount);
+            decimal received = await _context.AccountsPostings.Where(ap => ap.ExpenseId == expense.Id)
+                                                              .SumAsync(ap => ap.Amount);
 
             decimal paid       = Math.Abs(received);
-            decimal expected   = expense.ExpectedValue ?? 0;
-            decimal summarized = summarizedCategory.Amount ?? 0;
+            decimal expected   = expense.ExpectedValue ?? expense.ToPay;
+            decimal summarized = summarizedCategory?.Amount ?? 0;
             decimal newValue   = expected - summarized - paid;
 
             expense.ToPay      = Math.Max(newValue, paid);
