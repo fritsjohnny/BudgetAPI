@@ -63,6 +63,13 @@ namespace BudgetAPI.Services
                     DateTime today        = userNow.Date;
                     DateTime maxDate      = today.AddDays(3);
 
+                    // Log detalhado da data e hora local do usuário
+                    logBuilder.AppendLine($"🕒 Usuário: {user.Name}");
+                    logBuilder.AppendLine($"🌐 TimezoneId: {user.TimezoneId}");
+                    logBuilder.AppendLine($"🗓️ Data local: {today:dd/MM/yyyy}");
+                    logBuilder.AppendLine($"🕘 Hora local: {horaLocal}");
+                    logBuilder.AppendLine($"🔜 Considerando despesas até: {maxDate:dd/MM/yyyy}");
+
                     // Determina tipo de notificação com base na hora local
                     NotificacaoTipo tipo = horaLocal switch
                     {
@@ -70,6 +77,8 @@ namespace BudgetAPI.Services
                         12 or 18 => NotificacaoTipo.Parciais,
                         _ => NotificacaoTipo.Nenhuma
                     };
+
+                    logBuilder.AppendLine($"📌 Tipo de notificação definida: {tipo}");
 
                     if (tipo == NotificacaoTipo.Nenhuma && jaExecutouInicial)
                     {
@@ -84,13 +93,14 @@ namespace BudgetAPI.Services
                                                                               e.DueDate != null &&
                                                                               e.Paid != e.ToPay);
 
-
                     if (tipo == NotificacaoTipo.Parciais)
                     {
+                        logBuilder.AppendLine($"🔍 Filtro aplicado: PARCIAIS — despesas com DueDate até {today:dd/MM/yyyy}");
                         query = query.Where(e => e.DueDate!.Value.Date <= today);
                     }
                     else // tipo == Todas
                     {
+                        logBuilder.AppendLine($"🔍 Filtro aplicado: TODAS — despesas com DueDate até {maxDate:dd/MM/yyyy}");
                         query = query.Where(e => e.DueDate!.Value.Date <= maxDate);
                     }
 
@@ -133,10 +143,12 @@ namespace BudgetAPI.Services
                 }
                 catch (TimeZoneNotFoundException)
                 {
+                    logBuilder.AppendLine($"❌ Timezone inválido: {user.Id} - {user.TimezoneId}");
                     _logger.LogDebug("❌ Timezone inválido para usuário {0}: {1}", user.Id, user.TimezoneId);
                 }
                 catch (Exception ex)
                 {
+                    logBuilder.AppendLine($"❌ Erro ao processar usuário {user.Name}: {ex.Message}");
                     _logger.LogError(ex, "❌ Erro ao processar usuário {0}", user.Name);
                 }
             }
