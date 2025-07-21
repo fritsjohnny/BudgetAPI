@@ -46,8 +46,11 @@ namespace BudgetAPI.Services
             }
 
             // Próxima hora cheia
-            var proximaHoraCheia = now.AddHours(1).Date.AddHours(now.Hour + 1);
-            var delay = proximaHoraCheia - now;
+            DateTime proximaHoraCheia = now.AddMinutes(60 - now.Minute)
+                                           .AddSeconds(-now.Second)
+                                           .AddMilliseconds(-now.Millisecond);
+
+            TimeSpan delay = proximaHoraCheia - now;
 
             _timer = new Timer(_ =>
             {
