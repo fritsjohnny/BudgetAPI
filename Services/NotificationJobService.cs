@@ -145,11 +145,14 @@ namespace BudgetAPI.Services
                 {
                     logBuilder.AppendLine($"❌ Timezone inválido: {user.Id} - {user.TimezoneId}");
                     _logger.LogDebug("❌ Timezone inválido para usuário {0}: {1}", user.Id, user.TimezoneId);
+                    await SendDebugEmail("❌ Log de Execução - TimeZoneNotFoundException", logBuilder.ToString());
+
                 }
                 catch (Exception ex)
                 {
                     logBuilder.AppendLine($"❌ Erro ao processar usuário {user.Name}: {ex.Message}");
                     _logger.LogError(ex, "❌ Erro ao processar usuário {0}", user.Name);
+                    await SendDebugEmail("❌ Log de Execução - Exception", logBuilder.ToString());
                 }
             }
 
@@ -158,7 +161,7 @@ namespace BudgetAPI.Services
 
             //if (!Debugger.IsAttached)
             {
-                await SendDebugEmail("📋 Log de Execução - Notificações", logBuilder.ToString());
+                //await SendDebugEmail("📋 Log de Execução - Notificações", logBuilder.ToString());
             }
         }
 

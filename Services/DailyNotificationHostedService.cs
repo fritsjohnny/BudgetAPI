@@ -100,7 +100,7 @@ namespace BudgetAPI.Services
             _logBuilder.AppendLine($"[FIM HostedService] {DateTime.UtcNow:dd/MM/yyyy HH:mm:ss} UTC");
 
             // Enviar log acumulado
-            await SendDebugEmail("📋 Log - DailyNotificationHostedService", _logBuilder.ToString());
+            //await SendDebugEmail("📋 Log - DailyNotificationHostedService", _logBuilder.ToString());
             _logBuilder.Clear(); // 🧹 limpa logs para a próxima execução
         }
 
