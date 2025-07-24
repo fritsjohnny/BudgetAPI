@@ -120,10 +120,12 @@ namespace BudgetAPI.Services
                             > 0 => $"Despesa a vencer em {diffDays} dia{(diffDays > 1 ? "s" : "")}"
                         };
 
-                        string body =
-                    $"🧾 {e.Description}\n" +
-                    $"💸 {e.ToPay.ToString("C", culture)}\n" +
-                    $"🗓️ {dueDate:dd/MM/yyyy}";
+                        string referenceFormatted = DateTime.ParseExact(e.Reference!, "yyyyMM", CultureInfo.InvariantCulture).ToString("MM/yyyy");
+
+                        string body = $"🗃️ {referenceFormatted}\n" +
+                                      $"🧾 {e.Description}\n" +
+                                      $"💸 {e.ToPay.ToString("C", culture)}\n" +
+                                      $"🗓️ {dueDate:dd/MM/yyyy}";
 
                         bool result = await _firebase.SendPushAsync(user.FcmToken!, title, body);
 

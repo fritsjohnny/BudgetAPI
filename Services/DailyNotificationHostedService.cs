@@ -20,13 +20,14 @@ namespace BudgetAPI.Services
             _logger = logger;
         }
 
-        public Task StartAsync(CancellationToken cancellationToken)
+        public async Task StartAsync(CancellationToken cancellationToken)
         {
             _logger.LogInformation("🧪 [DEBUG] HostedService START - {0}", DateTime.Now);
             _logBuilder.AppendLine($"🟢 Serviço iniciado às {DateTime.UtcNow:dd/MM/yyyy HH:mm:ss} UTC");
 
+            await SendDebugEmail("🟢 HostedService", _logBuilder.ToString());
+
             ScheduleNextExecution();
-            return Task.CompletedTask;
         }
 
         private void ScheduleNextExecution()
