@@ -102,9 +102,18 @@ namespace BudgetAPI.Services
 
         public IQueryable<CardsPostingsPeople> GetCardsPostingsPeople(int cardId, string reference)
         {
-            IQueryable<CardsPostingsPeople>? cardsPostingsPeople = _context.GetCardsPostingsPeople(cardId, reference, _user.Id);
+            IQueryable<CardsPostingsPeople>? query = _context.GetCardsPostingsPeople(cardId, reference, _user.Id);
 
-            return cardsPostingsPeople;
+            return query.Select(p => new CardsPostingsPeople
+            {
+                Reference    = p.Reference,
+                CardId       = p.CardId,
+                Person       = p.Person,
+                PhoneNumber  = p.PhoneNumber,
+                ToReceive    = p.ToReceive,
+                Received     = p.Received,
+                Remaining    = p.Remaining
+            });
         }
 
         public CardsPostingsPeople GetCardsPostingsByPeopleId(string? peopleId, string reference, int cardId)
