@@ -39,22 +39,17 @@ namespace BudgetAPI.Controllers
             return categories;
         }
 
-        // PUT: api/Categories/5
-        [HttpPut("{id}")]
-        public async Task<IActionResult> PutCategories(int id, Categories category)
+        // PUT: api/Categories
+        [HttpPut()]
+        public async Task<IActionResult> PutCategories(Categories category)
         {
-            if (id != category.Id || !_categoryService.ValidarUsuario(category.UserId))
-            {
-                return BadRequest();
-            }
-
             try
             {
                 await _categoryService.PutCategories(category);
             }
             catch (DbUpdateConcurrencyException dex)
             {
-                if (!_categoryService.CategoriesExists(id))
+                if (!_categoryService.CategoriesExists(category.Id))
                 {
                     return NotFound();
                 }

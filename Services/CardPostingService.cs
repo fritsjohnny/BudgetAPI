@@ -10,10 +10,10 @@ namespace BudgetAPI.Services
         IQueryable<CardsPostings> GetCardsPostings(int id);
         IQueryable<CardsPostingsDTO> GetCardsPostings(int cardId, string reference);
         IQueryable<CardsPostings> GetCardsPostingsByDescription(string description);
-        IQueryable<CardsPostings> GetCardsPostings(string peopleId, string reference);
+        IQueryable<CardsPostings> GetCardsPostingsByPeopleId(int peopleId, string reference);
         IQueryable<CardsPostingsPeople> GetCardsPostingsPeople(int cardId, string reference);
         IQueryable<CardsPostingsDTO> GetCardsPostingsByReferences(string initialReference, string finalReference);
-        CardsPostingsPeople GetCardsPostingsByPeopleId(string? peopleId, string reference, int cardId);
+        CardsPostingsPeople GetCardsPostingsByPeopleId(int? peopleId, string reference, int cardId);
         Task PutCardsPostings(CardsPostings cardPosting, bool repeatToNextMonths);
         Task PutCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths);
         Task PostCardsPostings(CardsPostings cardPosting);
@@ -91,7 +91,7 @@ namespace BudgetAPI.Services
             return cardsPostings;
         }
 
-        public IQueryable<CardsPostings> GetCardsPostings(string peopleId, string reference)
+        public IQueryable<CardsPostings> GetCardsPostingsByPeopleId(int peopleId, string reference)
         {
             IOrderedQueryable<CardsPostings>? cardsPostings = _context.CardsPostings.Include(c => c.Card)
                                                                                     .Where(c => c.PeopleId == peopleId && c.Reference == reference && c.Card!.UserId == _user.Id)
@@ -102,28 +102,28 @@ namespace BudgetAPI.Services
 
         public IQueryable<CardsPostingsPeople> GetCardsPostingsPeople(int cardId, string reference)
         {
-            IQueryable<CardsPostingsPeople>? query = _context.GetCardsPostingsPeople(cardId, reference, _user.Id);
+            IQueryable<CardsPostingsPeople>? cardsPostingsPeople = _context.GetCardsPostingsPeople(cardId, reference, _user.Id);
 
-            return query.Select(p => new CardsPostingsPeople
-            {
-                Reference    = p.Reference,
-                CardId       = p.CardId,
-                Person       = p.Person,
-                PhoneNumber  = p.PhoneNumber,
-                ToReceive    = p.ToReceive,
-                Received     = p.Received,
-                Remaining    = p.Remaining
-            });
+            return cardsPostingsPeople;
         }
 
-        public CardsPostingsPeople GetCardsPostingsByPeopleId(string? peopleId, string reference, int cardId)
+        public CardsPostingsPeople GetCardsPostingsByPeopleId(int? peopleId, string reference, int cardId)
         {
             var cardsPostingPeople = new CardsPostingsPeople
             {
                 Reference = reference,
                 CardId    = cardId,
-                Person    = peopleId
+                PeopleId  = peopleId
             };
+
+            if (peopleId.HasValue)
+            {
+                string? person = _context.People.Where(p => p.Id == peopleId.Value && p.UserId == _user.Id)
+                                                .Select(p => p.Name)
+                                                .FirstOrDefault();
+
+                cardsPostingPeople.Person = person ?? string.Empty;
+            }
 
 
             cardsPostingPeople.CardsPostings = _context.CardsPostings.Include(c => c.Card)

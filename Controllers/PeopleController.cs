@@ -27,7 +27,7 @@ namespace BudgetAPI.Controllers
 
 		// GET: api/People/5
 		[HttpGet("{id}")]
-		public async Task<ActionResult<People>> GetPeople(string id)
+		public async Task<ActionResult<People>> GetPeople(int id)
 		{
 			People? people = await _peopleService.GetPeople(id).FirstOrDefaultAsync();
 
@@ -39,22 +39,17 @@ namespace BudgetAPI.Controllers
 			return people;
 		}
 
-		// PUT: api/People/5
-		[HttpPut("{id}")]
-		public async Task<IActionResult> PutPeople(string id, People people)
+		// PUT: api/People
+		[HttpPut()]
+		public async Task<IActionResult> PutPeople(People people)
 		{
-			if (!_peopleService.ValidarUsuario(people.UserId))
-			{
-				return BadRequest();
-			}
-
 			try
 			{
-				await _peopleService.PutPeople(id, people);
+				await _peopleService.PutPeople(people);
 			}
 			catch (DbUpdateConcurrencyException dex)
 			{
-				if (!_peopleService.PeopleExists(id))
+				if (!_peopleService.PeopleExists(people.Id))
 				{
 					return NotFound();
 				}
@@ -66,7 +61,7 @@ namespace BudgetAPI.Controllers
 				return Problem(ex.Message);
 			}
 
-			return Ok();
+			return Ok(people);
 		}
 
 		// POST: api/People
@@ -80,7 +75,7 @@ namespace BudgetAPI.Controllers
 
 		// DELETE: api/People/5
 		[HttpDelete("{id}")]
-		public async Task<IActionResult> DeletePeople(string id)
+		public async Task<IActionResult> DeletePeople(int id)
 		{
 			People? people = await _peopleService.GetPeople(id).FirstOrDefaultAsync();
 

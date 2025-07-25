@@ -51,9 +51,9 @@ namespace BudgetAPI.Controllers
         }
 
         [HttpGet("People/{peopleId}/{reference}")]
-        public async Task<ActionResult<IEnumerable<CardsPostings>>> GetCardsPostings(string peopleId, string reference)
+        public async Task<ActionResult<IEnumerable<CardsPostings>>> GetCardsPostingsByPeopleId(int peopleId, string reference)
         {
-            List<CardsPostings>? cardsPostings = await _cardPostingService.GetCardsPostings(peopleId, reference).ToListAsync();
+            List<CardsPostings>? cardsPostings = await _cardPostingService.GetCardsPostingsByPeopleId(peopleId, reference).ToListAsync();
 
             return cardsPostings;
         }
@@ -75,7 +75,7 @@ namespace BudgetAPI.Controllers
         }
 
         [HttpGet("PeopleById")]
-        public async Task<ActionResult<CardsPostingsPeople?>> GetCardsPostingsByPeopleIdAsync(string? peopleId, string reference, int cardId)
+        public async Task<ActionResult<CardsPostingsPeople?>> GetCardsPostingsByPeopleIdAsync(int? peopleId, string reference, int cardId)
         {
             CardsPostingsPeople? cardsPostingPeople = await Task.Run(() =>
             {

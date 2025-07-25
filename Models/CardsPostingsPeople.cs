@@ -4,6 +4,7 @@
 	{
 		public string Reference { get; set; }
 		public int CardId { get; set; }
+		public int? PeopleId { get; set; }
 		public string? Person { get; set; }
 		public string? PhoneNumber { get; set; }
         public decimal ToReceive { get; set; }

@@ -13,7 +13,7 @@
         public int? CardId { get; set; }
         public int? AccountId { get; set; }
         public string? Type { get; set; }
-        public string? PeopleId { get; set; }
+        public int? PeopleId { get; set; }
         public Accounts? Account { get; set; }
         public int? RelatedId { get; set; }
     }
