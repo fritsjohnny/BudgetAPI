@@ -71,6 +71,7 @@ namespace BudgetAPI.Services
             CardsInvoiceDate? invoiceDates = _context.CardsInvoiceDate.FirstOrDefault(cid => cid.CardId == cardId && cid.Reference == reference && cid.UserId == _user.Id);
 
             IQueryable<CardsPostingsDTO>? cardsPostings = _context.CardsPostings.Include(c => c.Card)
+                                                                                .Include(c => c.People)
                                                                                 .Where(c => c.CardId == cardId && c.Reference == reference && c.Card!.UserId == _user.Id)
                                                                                 .OrderBy(c => c.Position)
                                                                                 .Select(c => CardPostingToDTO(c, invoiceDates));
@@ -82,6 +83,7 @@ namespace BudgetAPI.Services
         {
             IQueryable<CardsPostingsDTO>? cardsPostings = _context.CardsPostings.Include(c => c.Card)
                                                                                 .Include(c => c.Category)
+                                                                                .Include(c => c.People)
                                                                                 .Where(c => string.Compare(c.Reference, initialReference) >= 0 &&
                                                                                             string.Compare(c.Reference, finalReference) <= 0 &&
                                                                                             c.Card!.UserId == _user.Id)
