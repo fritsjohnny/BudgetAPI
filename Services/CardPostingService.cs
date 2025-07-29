@@ -8,6 +8,7 @@ namespace BudgetAPI.Services
     {
         IQueryable<CardsPostings> GetCardsPostings();
         IQueryable<CardsPostings> GetCardsPostings(int id);
+        IQueryable<CardsPostingsDTO> GetCardsPostingsById(int id);
         IQueryable<CardsPostingsDTO> GetCardsPostings(int cardId, string reference);
         IQueryable<CardsPostings> GetCardsPostingsByDescription(string description);
         IQueryable<CardsPostings> GetCardsPostingsByPeopleId(int peopleId, string reference);
@@ -56,6 +57,16 @@ namespace BudgetAPI.Services
             return cardsPostings;
         }
 
+        public IQueryable<CardsPostingsDTO> GetCardsPostingsById(int id)
+        {
+            IQueryable<CardsPostingsDTO>? cardsPostings = _context.CardsPostings.Include(c => c.Card)
+                                                                                .Include(c => c.People)
+                                                                                .Where(c => c.Id == id && c.Card!.UserId == _user.Id)
+                                                                                .Select(c => CardPostingToDTO(c));
+
+            return cardsPostings;
+        }
+
         public IQueryable<CardsPostings> GetCardsPostingsByDescription(string description)
         {
             IQueryable<CardsPostings>? cardsPostings = _context.CardsPostings.Where(cp => cp.Card!.UserId == _user.Id &&
@@ -68,13 +79,11 @@ namespace BudgetAPI.Services
 
         public IQueryable<CardsPostingsDTO> GetCardsPostings(int cardId, string reference)
         {
-            CardsInvoiceDate? invoiceDates = _context.CardsInvoiceDate.FirstOrDefault(cid => cid.CardId == cardId && cid.Reference == reference && cid.UserId == _user.Id);
-
             IQueryable<CardsPostingsDTO>? cardsPostings = _context.CardsPostings.Include(c => c.Card)
                                                                                 .Include(c => c.People)
                                                                                 .Where(c => c.CardId == cardId && c.Reference == reference && c.Card!.UserId == _user.Id)
                                                                                 .OrderBy(c => c.Position)
-                                                                                .Select(c => CardPostingToDTO(c, invoiceDates));
+                                                                                .Select(c => CardPostingToDTO(c));
 
             return cardsPostings;
         }
@@ -88,7 +97,7 @@ namespace BudgetAPI.Services
                                                                                             string.Compare(c.Reference, finalReference) <= 0 &&
                                                                                             c.Card!.UserId == _user.Id)
                                                                                 .OrderBy(c => c.Position)
-                                                                                .Select(c => CardPostingToDTO(c, null));
+                                                                                .Select(c => CardPostingToDTO(c));
 
             return cardsPostings;
         }
@@ -439,7 +448,7 @@ namespace BudgetAPI.Services
             return _context.Cards.Where(c => c.Id == cardId && c.UserId == _user.Id).Any();
         }
 
-        private static CardsPostingsDTO CardPostingToDTO(CardsPostings cardPosting, CardsInvoiceDate? invoiceDates)
+        private static CardsPostingsDTO CardPostingToDTO(CardsPostings cardPosting)
         {
             CardsPostingsDTO cardPostingDTO = new()
             {
@@ -460,7 +469,6 @@ namespace BudgetAPI.Services
                 Category     = cardPosting.Category?.Name,
                 People       = cardPosting.People,
                 Card         = cardPosting.Card,
-                InTheCycle   = invoiceDates != null && cardPosting.Date >= invoiceDates.InvoiceStart && cardPosting.Date <= invoiceDates.InvoiceEnd,
                 RelatedId    = cardPosting.RelatedId,
                 Fixed        = cardPosting.Fixed,
                 DueDate      = cardPosting.DueDate,

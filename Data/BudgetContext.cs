@@ -47,9 +47,8 @@ namespace BudgetAPI.Data
         public DbSet<Expenses> Expenses { get; set; }
         public DbSet<Incomes> Incomes { get; set; }
         public DbSet<People> People { get; set; }
-        public DbSet<BudgetAPI.Models.CardsReceipts> CardsReceipts { get; set; }
-        public DbSet<BudgetAPI.Models.Categories> Categories { get; set; }
-        public DbSet<CardsInvoiceDate> CardsInvoiceDate { get; set; }
+        public DbSet<CardsReceipts> CardsReceipts { get; set; }
+        public DbSet<Categories> Categories { get; set; }
 
     }
 }

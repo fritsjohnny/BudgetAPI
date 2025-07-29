@@ -26,13 +26,6 @@ namespace BudgetAPI.Controllers
 			return await _cardService.GetCards().ToListAsync();
 		}
 
-        // GET: api/Card
-        [HttpGet("WithCardsInvoiceDate")]
-        public async Task<ActionResult<IEnumerable<CardsDTO>>> GetCardsWithCardsInvoiceDate(string reference)
-        {
-            return await _cardService.GetCardsWithCardsInvoiceDate(reference).ToListAsync();
-        }
-
         // GET: api/Card/5
         [HttpGet("{id}")]
 		public async Task<ActionResult<Cards>> GetCards(int id)

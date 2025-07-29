@@ -19,7 +19,6 @@
         public string? Category { get; set; }
         public People? People { get; set; }
         public Cards? Card { get; set; }
-        public bool InTheCycle { get; set; }
         public int? RelatedId { get; set; }
         public bool? Fixed { get; set; }
         public DateTime? DueDate { get; set; }

@@ -27,9 +27,9 @@ namespace BudgetAPI.Controllers
 
         // GET: api/CardsPostings/5
         [HttpGet("{id}")]
-        public async Task<CardsPostings?> GetCardsPostings(int id)
+        public async Task<CardsPostingsDTO?> GetCardsPostings(int id)
         {
-            CardsPostings? cardsPostings = await _cardPostingService.GetCardsPostings(id).FirstOrDefaultAsync();
+            CardsPostingsDTO? cardsPostings = await _cardPostingService.GetCardsPostingsById(id).FirstOrDefaultAsync();
 
             return cardsPostings;
         }
@@ -161,7 +161,7 @@ namespace BudgetAPI.Controllers
 
         // POST: api/CardsPostings
         [HttpPost]
-        public async Task<ActionResult<CardsPostings?>> PostCardsPostings(CardsPostings cardsPostings)
+        public async Task<ActionResult<CardsPostingsDTO?>> PostCardsPostings(CardsPostings cardsPostings)
         {
             if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId))
             {
@@ -187,7 +187,7 @@ namespace BudgetAPI.Controllers
         }
 
         [HttpPost("AllParcels")]
-        public async Task<ActionResult<CardsPostings?>> PostCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths)
+        public async Task<ActionResult<CardsPostingsDTO?>> PostCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths)
         {
             if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId))
             {

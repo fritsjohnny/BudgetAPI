@@ -92,7 +92,7 @@ namespace BudgetAPI.Services
                                                     {
                                                         Id         = cat.Id,
                                                         Name       = cat.Name,
-                                                        HasExpense = expenses.Any(e => e.Description.Trim() == cat.Name.Trim())
+                                                        HasExpense = expenses.Any(e => e.Description!.Trim() == cat.Name.Trim())
                                                     }).ToList();
 
             return result;
