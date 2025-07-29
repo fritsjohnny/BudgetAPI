@@ -160,11 +160,38 @@ namespace BudgetAPI.Services
             {
                 _context.Entry(cardPosting).State = EntityState.Modified;
 
-                await _context.SaveChangesAsync();
-
                 if (cardPosting.ExpenseId.HasValue)
                     await _expenseService.AjustarValorComBaseNaCategoria(cardPosting.ExpenseId.Value);
 
+                if (repeatToNextMonths)
+                {
+                    List<CardsPostings>? futurePostings = _context.CardsPostings.Where(cp =>
+                                                                                        cp.RelatedId != null &&
+                                                                                        (cp.RelatedId == cardPosting.Id || cp.RelatedId == cardPosting.RelatedId) &&
+                                                                                        string.Compare(cp.Reference, cardPosting.Reference) > 0)
+                                                                                .ToList();
+
+
+                    foreach (CardsPostings item in futurePostings)
+                    {
+                        item.CardId      = cardPosting.CardId;
+                        item.Date        = cardPosting.Date;
+                        item.Description = cardPosting.Description;
+                        item.TotalAmount = cardPosting.TotalAmount;
+                        item.Amount      = cardPosting.Amount;
+                        item.Fixed       = cardPosting.Fixed;
+                        item.CategoryId  = cardPosting.CategoryId;
+                        item.PeopleId    = cardPosting.PeopleId;
+                        item.Note        = cardPosting.Note;
+                        item.IsPaid      = cardPosting.IsPaid;
+                        item.ExpenseId   = cardPosting.ExpenseId;
+                        item.Others      = cardPosting.Others;
+
+                        _context.Entry(item).State = EntityState.Modified;
+                    }
+                }
+
+                await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
             }
             catch (Exception ex)
@@ -173,6 +200,7 @@ namespace BudgetAPI.Services
                 throw new Exception($"Erro no CardPostingService.PutCardsPostings: {ex.Message}", ex);
             }
         }
+
 
         public async Task PutCardsPostingsWithParcels(CardsPostings cardPosting, bool repeat, int qtyMonths)
         {

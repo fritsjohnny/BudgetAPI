@@ -1,6 +1,5 @@
 ﻿using BudgetAPI.Data;
 using BudgetAPI.Models;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace BudgetAPI.Services
@@ -9,6 +8,7 @@ namespace BudgetAPI.Services
     {
         IQueryable<Expenses> GetExpenses();
         IQueryable<Expenses> GetExpenses(int id);
+        IQueryable<ExpensesDTO> GetExpensesDTO(int id);
         IQueryable<Expenses> GetExpensesByDescription(string description);
         IQueryable<ExpensesDTO> GetExpensesByReference(string reference);
         IQueryable<ExpensesDTO> GetExpensesByReferences(string initialReference, string finalReference);
@@ -58,12 +58,20 @@ namespace BudgetAPI.Services
             return expenses;
         }
 
+        public IQueryable<ExpensesDTO> GetExpensesDTO(int id)
+        {
+            IQueryable<ExpensesDTO>? expenses = _context.Expenses.Where(e => e.Id == id && e.UserId == _user.Id)
+                                                                 .Select(e => ExpensesToDTO(e));
+
+            return expenses;
+        }
+
         public IQueryable<Expenses> GetExpensesByDescription(string description)
         {
             IQueryable<Expenses>? expenses = _context.Expenses.Where(cp => cp.UserId == _user.Id &&
                                                                             cp.CategoryId != null &&
-                                                                            cp.Description.ToLower().Trim() == description.ToLower().Trim())
-                                                                             .OrderByDescending(o => o.Id);
+                                                                            cp.Description!.ToLower().Trim() == description.ToLower().Trim())
+                                                              .OrderByDescending(o => o.Id);
 
             return expenses;
         }

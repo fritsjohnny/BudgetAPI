@@ -27,9 +27,9 @@ namespace BudgetAPI.Controllers
 
         // GET: api/Incomes/5
         [HttpGet("{id}")]
-        public async Task<ActionResult<Incomes>> GetIncomes(int id)
+        public async Task<ActionResult<IncomesDTO>> GetIncomesDTO(int id)
         {
-            Incomes? incomes = await _incomeService.GetIncomes(id).FirstOrDefaultAsync();
+            IncomesDTO? incomes = await _incomeService.GetIncomesDTO(id).FirstOrDefaultAsync();
 
             if (incomes == null)
             {
@@ -142,13 +142,13 @@ namespace BudgetAPI.Controllers
 
         // POST: api/Incomes
         [HttpPost]
-        public async Task<ActionResult<Incomes>> PostIncomes(Incomes income)
+        public async Task<ActionResult<IncomesDTO>> PostIncomes(Incomes income)
         {
             try
             {
                 await _incomeService.PostIncomes(income);
 
-                return await GetIncomes(income.Id);
+                return await GetIncomesDTO(income.Id);
             }
             catch (Exception ex)
             {
@@ -157,7 +157,7 @@ namespace BudgetAPI.Controllers
         }
 
         [HttpPost("Repeat")]
-        public async Task<ActionResult<Incomes>> PostIncomesWithParcels(Incomes income, int qtyMonths)
+        public async Task<ActionResult<IncomesDTO>> PostIncomesWithParcels(Incomes income, int qtyMonths)
         {
             try
             {
@@ -166,7 +166,7 @@ namespace BudgetAPI.Controllers
                     _incomeService.PostIncomesWithParcels(income, qtyMonths);
                 });
 
-                return await GetIncomes(income.Id);
+                return await GetIncomesDTO(income.Id);
             }
             catch (Exception ex)
             {

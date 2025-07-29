@@ -8,6 +8,7 @@ namespace BudgetAPI.Services
     {
         IQueryable<Incomes> GetIncomes();
         IQueryable<Incomes> GetIncomes(int id);
+        IQueryable<IncomesDTO> GetIncomesDTO(int id);
         IQueryable<IncomesDTO> GetIncomes(string reference);
         IQueryable<IncomesDTO> GetMyIncomes(string reference);
         IQueryable<IncomesDTO2> GetIncomesComboList(string reference);
@@ -47,6 +48,14 @@ namespace BudgetAPI.Services
             return incomes;
         }
 
+        public IQueryable<IncomesDTO> GetIncomesDTO(int id)
+        {
+            IQueryable<IncomesDTO>? incomes = _context.Incomes.Where(e => e.Id == id && e.UserId == _user.Id)
+                                                              .Select(e => IncomesToDTO(e));
+
+            return incomes;
+        }
+
         public IQueryable<IncomesDTO> GetIncomes(string reference)
         {
             IQueryable<IncomesDTO>? incomes = _context.Incomes.Where(e => e.Reference == reference && e.UserId == _user.Id)
@@ -58,9 +67,9 @@ namespace BudgetAPI.Services
 
         public IQueryable<IncomesDTO> GetMyIncomes(string reference)
         {
-            IQueryable<IncomesDTO>? incomes = _context.Incomes.Where(e => e.Reference == reference && 
-                                                                                e.UserId == _user.Id && 
-                                                                                e.PeopleId == null && 
+            IQueryable<IncomesDTO>? incomes = _context.Incomes.Where(e => e.Reference == reference &&
+                                                                                e.UserId == _user.Id &&
+                                                                                e.PeopleId == null &&
                                                                                 e.CardId == null)
                                                               .OrderBy(e => e.Position)
                                                               .Select(e => IncomesToDTO(e));

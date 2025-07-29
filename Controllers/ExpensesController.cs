@@ -35,9 +35,9 @@ namespace BudgetAPI.Controllers
 
         // GET: api/Expenses/5
         [HttpGet("{id}")]
-        public async Task<ActionResult<Expenses>> GetExpenses(int id)
+        public async Task<ActionResult<ExpensesDTO>> GetExpensesDTO(int id)
         {
-            Expenses? expenses = await _expenseService.GetExpenses(id).FirstOrDefaultAsync();
+            ExpensesDTO? expenses = await _expenseService.GetExpensesDTO(id).FirstOrDefaultAsync();
 
             if (expenses == null)
             {
@@ -185,13 +185,13 @@ namespace BudgetAPI.Controllers
 
         // POST: api/Expenses
         [HttpPost]
-        public async Task<ActionResult<Expenses>> PostExpenses(Expenses expense)
+        public async Task<ActionResult<ExpensesDTO>> PostExpenses(Expenses expense)
         {
             try
             {
                 await _expenseService.PostExpenses(expense);
 
-                return await GetExpenses(expense.Id);
+                return await GetExpensesDTO(expense.Id);
             }
             catch (Exception ex)
             {
@@ -200,7 +200,7 @@ namespace BudgetAPI.Controllers
         }
 
         [HttpPost("AllParcels")]
-        public async Task<ActionResult<Expenses>> PostExpensesWithParcels(Expenses expense, bool repeat, int qtyMonths)
+        public async Task<ActionResult<ExpensesDTO>> PostExpensesWithParcels(Expenses expense, bool repeat, int qtyMonths)
         {
             try
             {
@@ -209,7 +209,7 @@ namespace BudgetAPI.Controllers
                     _expenseService.PostExpensesWithParcels(expense, repeat, qtyMonths);
                 });
 
-                return await GetExpenses(expense.Id);
+                return await GetExpensesDTO(expense.Id);
             }
             catch (Exception ex)
             {
