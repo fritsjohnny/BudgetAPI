@@ -127,7 +127,12 @@ namespace BudgetAPI.Services
                                       $"💸 {e.ToPay.ToString("C", culture)}\n" +
                                       $"🗓️ {dueDate:dd/MM/yyyy}";
 
-                        bool result = await _firebase.SendPushAsync(user.FcmToken!, title, body);
+                        // Gera uma tag única por despesa
+                        string tag = $"despesa-{e.Id}";
+
+                        bool result = await _firebase.SendPushAsync(user.FcmToken!, title, body, tag);
+
+                        await Task.Delay(100);
 
                         if (result)
                         {

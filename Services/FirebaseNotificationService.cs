@@ -19,23 +19,30 @@ namespace BudgetAPI.Services
 
                 FirebaseApp.Create(new AppOptions()
                 {
-                    Credential = GoogleCredential.FromFile(path) 
+                    Credential = GoogleCredential.FromFile(path)
                 });
                 _initialized = true;
             }
         }
 
-        public async Task<bool> SendPushAsync(string fcmToken, string title, string body)
+        public async Task<bool> SendPushAsync(string fcmToken, string title, string body, string tag)
         {
             try
             {
                 var message = new Message()
                 {
-                    Token = fcmToken,
+                    Token        = fcmToken,
                     Notification = new Notification
                     {
                         Title = title,
-                        Body = body
+                        Body  = body
+                    },
+                    Android = new AndroidConfig
+                    {
+                        Notification = new AndroidNotification
+                        {
+                            Tag = tag
+                        }
                     }
                 };
 
