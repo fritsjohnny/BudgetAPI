@@ -73,7 +73,7 @@ namespace BudgetAPI.Services
                     // Determina tipo de notificação com base na hora local
                     NotificacaoTipo tipo = horaLocal switch
                     {
-                        6 => NotificacaoTipo.Todas,
+                        8 => NotificacaoTipo.Todas,
                         12 or 18 => NotificacaoTipo.Parciais,
                         _ => NotificacaoTipo.Nenhuma
                     };
@@ -86,7 +86,7 @@ namespace BudgetAPI.Services
                         totalIgnorados++;
 
                         _logger.LogDebug("⏩ Ignorando usuário {User} - hora local {Hour}", user.Name, horaLocal);
-                        continue; // só envia notificações às 6h, 12h, 18h locais
+                        continue; // só envia notificações às 8h, 12h, 18h locais
                     }
 
                     IQueryable<Expenses> query = _context.Expenses.Where(e => e.UserId == user.Id &&
@@ -107,44 +107,52 @@ namespace BudgetAPI.Services
                     List<Expenses> expenses = await query.OrderBy(e => e.DueDate)
                                                          .ToListAsync();
 
+                    logBuilder.AppendLine($"📦 Total de despesas para {user.Name}: {expenses.Count}");
+
                     foreach (Expenses e in expenses)
                     {
-                        DateTime dueDate = e.DueDate!.Value.Date;
-                        int diffDays = (dueDate - today).Days;
-
-                        string title = diffDays switch
+                        try
                         {
-                            < 0 when diffDays == -1 => "Despesa venceu ontem",
-                            < 0 => $"Despesa vencida há {Math.Abs(diffDays)} dias",
-                            0 => "Despesa vence hoje",
-                            > 0 => $"Despesa a vencer em {diffDays} dia{(diffDays > 1 ? "s" : "")}"
-                        };
+                            DateTime dueDate = e.DueDate!.Value.Date;
+                            int diffDays = (dueDate - today).Days;
 
-                        string referenceFormatted = DateTime.ParseExact(e.Reference!, "yyyyMM", CultureInfo.InvariantCulture).ToString("MM/yyyy");
+                            string title = diffDays switch
+                            {
+                                < 0 when diffDays == -1 => "Despesa venceu ontem",
+                                < 0 => $"Despesa vencida há {Math.Abs(diffDays)} dias",
+                                0 => "Despesa vence hoje",
+                                > 0 => $"Despesa a vencer em {diffDays} dia{(diffDays > 1 ? "s" : "")}"
+                            };
 
-                        string body = $"🗃️ {referenceFormatted}\n" +
-                                      $"🧾 {e.Description}\n" +
-                                      $"💸 {e.ToPay.ToString("C", culture)}\n" +
-                                      $"🗓️ {dueDate:dd/MM/yyyy}";
+                            string referenceFormatted = DateTime.ParseExact(e.Reference!, "yyyyMM", CultureInfo.InvariantCulture).ToString("MM/yyyy");
 
-                        // Gera uma tag única por despesa
-                        string tag = $"despesa-{e.Id}";
+                            string body = $"🗃️ {referenceFormatted}\n" +
+                      $"🧾 {e.Description}\n" +
+                      $"💸 {e.ToPay.ToString("C", culture)}\n" +
+                      $"🗓️ {dueDate:dd/MM/yyyy}";
 
-                        bool result = await _firebase.SendPushAsync(user.FcmToken!, title, body, tag);
+                            string tag = $"despesa-{e.Id}";
 
-                        await Task.Delay(100);
+                            bool result = await _firebase.SendPushAsync(user.FcmToken!, title, body, tag);
+                            await Task.Delay(100); // Protege contra colapso do FCM
 
-                        if (result)
-                        {
-                            totalEnviados++;
-                            logBuilder.AppendLine($"✅ Enviado: {user.Name} - {title}");
-                            _logger.LogDebug("📤 Push enviado: {Title} para {User}", title, user.Name);
+                            if (result)
+                            {
+                                totalEnviados++;
+                                logBuilder.AppendLine($"✅ Enviado: {user.Name} - {title}");
+                            }
+                            else
+                            {
+                                totalFalhas++;
+                                logBuilder.AppendLine($"⚠️ Falha: {user.Name} - {title}");
+                            }
                         }
-                        else
+                        catch (Exception ex)
                         {
                             totalFalhas++;
-                            logBuilder.AppendLine($"⚠️ Falha: {user.Name} - {title}");
-                            _logger.LogDebug("⚠️ Falha ao enviar para {User}", user.Name);
+                            logBuilder.AppendLine($"❌ Erro ao enviar despesa {e.Id} para {user.Name}: {ex.Message}");
+                            _logger.LogError(ex, "❌ Erro ao enviar notificação de despesa {Id} para usuário {User}", e.Id, user.Name);
+                            await SendDebugEmail("❌ Log de Execução - Exception try do foreach (Expenses e in expenses)", logBuilder.ToString());
                         }
                     }
                 }
@@ -159,7 +167,7 @@ namespace BudgetAPI.Services
                 {
                     logBuilder.AppendLine($"❌ Erro ao processar usuário {user.Name}: {ex.Message}");
                     _logger.LogError(ex, "❌ Erro ao processar usuário {0}", user.Name);
-                    await SendDebugEmail("❌ Log de Execução - Exception", logBuilder.ToString());
+                    await SendDebugEmail("❌ Log de Execução - Exception try do foreach (Users? user in users)", logBuilder.ToString());
                 }
             }
 
@@ -177,16 +185,17 @@ namespace BudgetAPI.Services
             try
             {
                 var message = new MailMessage();
+
                 message.From = new MailAddress("frits.johnny@gmail.com");
                 message.To.Add("johnny.frits@outlook.com");
-                message.Subject = subject;
-                message.Body = body;
+                message.Subject    = subject;
+                message.Body       = body;
                 message.IsBodyHtml = false;
 
                 using var client = new SmtpClient("smtp.gmail.com", 587)
                 {
                     Credentials = new NetworkCredential("frits.johnny@gmail.com", "jyovlyendozbwhyi"),
-                    EnableSsl = true
+                    EnableSsl   = true
                 };
 
                 await client.SendMailAsync(message);
