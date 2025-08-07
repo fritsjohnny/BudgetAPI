@@ -19,5 +19,31 @@ namespace BudgetAPI.Models
         public decimal PreviousBalance { get; set; }
         public decimal TotalYields { get; set; }
         public decimal GrandTotalYields { get; set; }
+        /// <summary>
+        /// Percentual aplicado sobre o índice de rendimento (ex: 120 para 120% do CDI).
+        /// Usado no cálculo do rendimento bruto diário.
+        /// </summary>
+        public decimal? YieldPercent { get; set; }
+
+
+        /// <summary>
+        /// Nome do índice de referência para o rendimento (ex: "CDI", "IPCA", "SELIC").
+        /// </summary>
+        public string? YieldIndex { get; set; }
+
+
+        /// <summary>
+        /// Alíquota de Imposto de Renda (%) aplicada sobre o rendimento bruto.
+        /// Segue tabela regressiva do IR.
+        /// </summary>
+        public decimal? IrPercent { get; set; }
+
+
+        /// <summary>
+        /// Indica se os rendimentos dessa conta são isentos de IR e IOF (ex: LCI, LCA).
+        /// Se verdadeiro, ignora o campo IrPercent no cálculo.
+        /// </summary>
+        public bool IsTaxExempt { get; set; }
+
     }
 }
