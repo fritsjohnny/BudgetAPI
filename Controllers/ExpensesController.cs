@@ -26,12 +26,10 @@ namespace BudgetAPI.Controllers
             return await _expenseService.GetExpenses().ToListAsync();
         }
 
-        [HttpGet("ByDescription/{description}")]
-        public async Task<Expenses?> ByDescription(string description)
+        [HttpGet("ByDescription")]
+        public async Task<Expenses?> ByDescription([FromQuery] string description)
         {
-            string decoded = HttpUtility.UrlDecode(description);
-
-            Expenses? expense = await _expenseService.GetExpensesByDescription(decoded).FirstOrDefaultAsync();
+            Expenses? expense = await _expenseService.GetExpensesByDescription(description).FirstOrDefaultAsync();
 
             return expense;
         }

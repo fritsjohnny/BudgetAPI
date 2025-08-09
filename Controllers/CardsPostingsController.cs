@@ -1,4 +1,6 @@
-﻿using System.Web;
+﻿using System.Net;
+using System.Text;
+using System.Web;
 using BudgetAPI.Authorization;
 using BudgetAPI.Models;
 using BudgetAPI.Services;
@@ -35,12 +37,10 @@ namespace BudgetAPI.Controllers
             return cardsPostings;
         }
 
-        [HttpGet("ByDescription/{description}")]
-        public async Task<CardsPostings?> ByDescription(string description)
+        [HttpGet("ByDescription")]
+        public async Task<CardsPostings?> ByDescription([FromQuery] string description)
         {
-            string decoded = HttpUtility.UrlDecode(description);
-
-            CardsPostings? cardsPostings = await _cardPostingService.GetCardsPostingsByDescription(decoded).FirstOrDefaultAsync();
+            CardsPostings? cardsPostings = await _cardPostingService.GetCardsPostingsByDescription(description).FirstOrDefaultAsync();
 
             return cardsPostings;
         }
