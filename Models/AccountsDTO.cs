@@ -1,7 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations.Schema;
-using System.Diagnostics.CodeAnalysis;
-
-namespace BudgetAPI.Models
+﻿namespace BudgetAPI.Models
 {
     public class AccountsDTO
     {
@@ -44,6 +41,9 @@ namespace BudgetAPI.Models
         /// Se verdadeiro, ignora o campo IrPercent no cálculo.
         /// </summary>
         public bool IsTaxExempt { get; set; }
-
+        /// <summary>
+        /// Saldo bruto total da conta, incluindo rendimentos antes de impostos.
+        /// </summary>
+        public decimal? TotalBalanceGross { get; set; }
     }
 }
