@@ -1,4 +1,5 @@
-﻿using BudgetAPI.Authorization;
+﻿using System.Web;
+using BudgetAPI.Authorization;
 using BudgetAPI.Models;
 using BudgetAPI.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -28,7 +29,9 @@ namespace BudgetAPI.Controllers
         [HttpGet("ByDescription/{description}")]
         public async Task<Expenses?> ByDescription(string description)
         {
-            Expenses? expense = await _expenseService.GetExpensesByDescription(description).FirstOrDefaultAsync();
+            string decoded = HttpUtility.UrlDecode(description);
+
+            Expenses? expense = await _expenseService.GetExpensesByDescription(decoded).FirstOrDefaultAsync();
 
             return expense;
         }
