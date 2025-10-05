@@ -21,6 +21,7 @@ namespace BudgetAPI.Data
             modelBuilder.Entity<BudgetTotals>().ToTable("GetBudgetTotals").HasNoKey();
             modelBuilder.Entity<ExpensesByCategories>().ToTable("GetExpensesByCategories").HasNoKey();
             modelBuilder.Entity<ExpensesDTO>().ToTable("GetMyExpenses").HasNoKey();
+            modelBuilder.Entity<AccountsYieldsDTO>().ToTable("GetAccountsYields").HasNoKey();
 
             modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetAccountTotals), new[] { typeof(int), typeof(string), typeof(int) }));
             modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetAccountsSummary), new[] { typeof(string), typeof(int) }));
@@ -29,6 +30,7 @@ namespace BudgetAPI.Data
             modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetBudgetTotals), new[] { typeof(string), typeof(int) }));
             modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetExpensesByCategories), new[] { typeof(string), typeof(int), typeof(int) }));
             modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetMyExpenses), new[] { typeof(string), typeof(int) }));
+            modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetAccountsYields), new[] { typeof(string), typeof(int?), typeof(int) }));
         }
 
         public IQueryable<AccountsDTO> GetAccountTotals(int accountId, string reference, int userId) => FromExpression(() => GetAccountTotals(accountId, reference, userId));
@@ -38,6 +40,7 @@ namespace BudgetAPI.Data
         public IQueryable<BudgetTotals> GetBudgetTotals(string reference, int userId) => FromExpression(() => GetBudgetTotals(reference, userId));
         public IQueryable<ExpensesByCategories> GetExpensesByCategories(string reference, int cardId, int userId) => FromExpression(() => GetExpensesByCategories(reference, cardId, userId));
         public IQueryable<ExpensesDTO> GetMyExpenses(string reference, int userId) => FromExpression(() => GetMyExpenses(reference, userId));
+        public IQueryable<AccountsYieldsDTO> GetAccountsYields(string? reference, int? accountId, int userId) => FromExpression(() => GetAccountsYields(reference, accountId, userId));
 
         public DbSet<Accounts> Accounts { get; set; }
         public DbSet<Cards> Cards { get; set; }

@@ -6,118 +6,128 @@ using Microsoft.EntityFrameworkCore;
 
 namespace BudgetAPI.Controllers
 {
-	[Authorize]
-	[Route("api/[controller]")]
-	[ApiController]
-	public class AccountsPostingsController : ControllerBase
-	{
-		private readonly IAccountPostingService _accountPostingService;
+    [Authorize]
+    [Route("api/[controller]")]
+    [ApiController]
+    public class AccountsPostingsController : ControllerBase
+    {
+        private readonly IAccountPostingService _accountPostingService;
 
-		public AccountsPostingsController(IAccountPostingService accountPostingService)
-		{
-			_accountPostingService = accountPostingService;
-		}
+        public AccountsPostingsController(IAccountPostingService accountPostingService)
+        {
+            _accountPostingService = accountPostingService;
+        }
 
-		// GET: api/AccountsPostings
-		[HttpGet]
-		public async Task<ActionResult<IEnumerable<AccountsPostings>>> GetAccountsPostings()
-		{
-			return await _accountPostingService.GetAccountsPostings().ToListAsync();
-		}
+        // GET: api/AccountsPostings
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<AccountsPostings>>> GetAccountsPostings()
+        {
+            return await _accountPostingService.GetAccountsPostings().ToListAsync();
+        }
 
-		// GET: api/AccountsPostings/5
-		[HttpGet("{id}")]
-		public async Task<ActionResult<AccountsPostings>> GetAccountsPostings(int id)
-		{
-			AccountsPostings? accountsPostings = await _accountPostingService.GetAccountsPostings(id).FirstOrDefaultAsync();
+        // GET: api/AccountsPostings/5
+        [HttpGet("{id}")]
+        public async Task<ActionResult<AccountsPostings>> GetAccountsPostings(int id)
+        {
+            AccountsPostings? accountsPostings = await _accountPostingService.GetAccountsPostings(id).FirstOrDefaultAsync();
 
-			if (accountsPostings == null)
-			{
-				return NotFound();
-			}
+            if (accountsPostings == null)
+            {
+                return NotFound();
+            }
 
-			return accountsPostings;
-		}
+            return accountsPostings;
+        }
 
-		[HttpGet("{accountId}/{reference}")]
-		public async Task<ActionResult<IEnumerable<AccountsPostings>>> GetAccountsPostings(int accountId, string reference)
-		{
-			var accountsPostings = await _accountPostingService.GetAccountsPostings(accountId, reference).ToListAsync();
+        [HttpGet("{accountId}/{reference}")]
+        public async Task<ActionResult<IEnumerable<AccountsPostings>>> GetAccountsPostings(int accountId, string reference)
+        {
+            var accountsPostings = await _accountPostingService.GetAccountsPostings(accountId, reference).ToListAsync();
 
-			return accountsPostings;
-		}
+            return accountsPostings;
+        }
 
-		// PUT: api/AccountsPostings/5
-		[HttpPut("{id}")]
-		public async Task<IActionResult> PutAccountsPostings(int id, AccountsPostings accountsPostings)
-		{
-			if (id != accountsPostings.Id || !_accountPostingService.ValidarUsuario(id))
-			{
-				return BadRequest();
-			}
+        // PUT: api/AccountsPostings/5
+        [HttpPut("{id}")]
+        public async Task<IActionResult> PutAccountsPostings(int id, AccountsPostings accountsPostings)
+        {
+            if (id != accountsPostings.Id || !_accountPostingService.ValidarUsuario(id))
+            {
+                return BadRequest();
+            }
 
-			try
-			{
-				await _accountPostingService.PutAccountsPostings(accountsPostings);
-			}
-			catch (DbUpdateConcurrencyException dex)
-			{
-				if (!_accountPostingService.AccountsPostingsExists(id))
-				{
-					return NotFound();
-				}
+            try
+            {
+                await _accountPostingService.PutAccountsPostings(accountsPostings);
+            }
+            catch (DbUpdateConcurrencyException dex)
+            {
+                if (!_accountPostingService.AccountsPostingsExists(id))
+                {
+                    return NotFound();
+                }
 
-				return Problem(dex.Message);
-			}
-			catch (Exception ex)
-			{
-				return Problem(ex.Message);
-			}
+                return Problem(dex.Message);
+            }
+            catch (Exception ex)
+            {
+                return Problem(ex.Message);
+            }
 
-			return Ok();
-		}
+            return Ok();
+        }
 
-		// POST: api/AccountsPostings
-		[HttpPost]
-		public async Task<ActionResult<AccountsPostings>> PostAccountsPostings(AccountsPostings accountsPostings)
-		{
-			if (!_accountPostingService.ValidateAccountAndUser(accountsPostings.AccountId))
-			{
-				return BadRequest();
-			}
+        // POST: api/AccountsPostings
+        [HttpPost]
+        public async Task<ActionResult<AccountsPostings>> PostAccountsPostings(AccountsPostings accountsPostings)
+        {
+            if (!_accountPostingService.ValidateAccountAndUser(accountsPostings.AccountId))
+            {
+                return BadRequest();
+            }
 
-			await _accountPostingService.PostAccountsPostings(accountsPostings);
+            await _accountPostingService.PostAccountsPostings(accountsPostings);
 
-			return CreatedAtAction("GetAccountsPostings", new { id = accountsPostings.Id }, accountsPostings);
-		}
+            return CreatedAtAction("GetAccountsPostings", new { id = accountsPostings.Id }, accountsPostings);
+        }
 
-		// DELETE: api/AccountsPostings/5
-		[HttpDelete("{id}")]
-		public async Task<IActionResult> DeleteAccountsPostings(int id)
-		{
-			AccountsPostings? accountsPostings = await _accountPostingService.GetAccountsPostings(id).FirstOrDefaultAsync();
-			
-			if (accountsPostings == null)
-			{
-				return NotFound();
-			}
+        // DELETE: api/AccountsPostings/5
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteAccountsPostings(int id)
+        {
+            AccountsPostings? accountsPostings = await _accountPostingService.GetAccountsPostings(id).FirstOrDefaultAsync();
 
-			if (!_accountPostingService.ValidarUsuario(accountsPostings.Id))
-			{
-				return BadRequest();
-			}
+            if (accountsPostings == null)
+            {
+                return NotFound();
+            }
 
-			await _accountPostingService.DeleteAccountsPostings(accountsPostings);
+            if (!_accountPostingService.ValidarUsuario(accountsPostings.Id))
+            {
+                return BadRequest();
+            }
 
-			return Ok();
-		}
+            await _accountPostingService.DeleteAccountsPostings(accountsPostings);
 
-		[HttpPut("SetPositions")]
-		public async Task<ActionResult<AccountsPostings>> SetPositions(List<AccountsPostings> accountsPostings)
-		{
-			await _accountPostingService.SetPositions(accountsPostings);
+            return Ok();
+        }
 
-			return Ok();
-		}
-	}
+        [HttpPut("SetPositions")]
+        public async Task<ActionResult<AccountsPostings>> SetPositions(List<AccountsPostings> accountsPostings)
+        {
+            await _accountPostingService.SetPositions(accountsPostings);
+
+            return Ok();
+        }
+
+        [HttpGet("yields")]
+        [HttpGet("yields/{reference}")]
+        [HttpGet("yields/{reference}/{accountId}")]
+        public async Task<ActionResult<IEnumerable<AccountsYieldsDTO>>> GetAccountsYields([FromRoute] string? reference = null, [FromRoute] int? accountId = null)
+        {
+            List<AccountsYieldsDTO> accountsYields = await _accountPostingService.GetAccountsYields(reference, accountId).ToListAsync();
+
+            return accountsYields;
+        }
+    }
 }

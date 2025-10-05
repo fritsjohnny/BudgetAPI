@@ -16,9 +16,9 @@ namespace BudgetAPI.Services
 		bool ValidarUsuario(int accountPostingId);
 		bool AccountsPostingsExists(int id);
 		bool ValidateAccountAndUser(int accountId);
-
-	}
-	public class AccountPostingService : IAccountPostingService
+        IQueryable<AccountsYieldsDTO> GetAccountsYields(string? reference, int? accountId);
+    }
+    public class AccountPostingService : IAccountPostingService
 	{
 		private readonly BudgetContext _context;
 
@@ -111,5 +111,18 @@ namespace BudgetAPI.Services
 		{
 			return _context.Accounts.Where(a => a.Id == accountId && a.UserId == _user.Id).Any();
 		}
-	}
+
+        public IQueryable<AccountsYieldsDTO> GetAccountsYields(string? reference, int? accountId)
+        {
+            IQueryable<AccountsYieldsDTO> accountsYields = Enumerable.Empty<AccountsYieldsDTO>().AsQueryable();
+
+            try
+            {
+                accountsYields = _context.GetAccountsYields(reference, accountId, _user.Id);
+            }
+            catch { /**/ }
+
+            return accountsYields.OrderByDescending(y => y.RowNum);
+        }
+    }
 }
