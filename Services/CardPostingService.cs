@@ -81,7 +81,7 @@ namespace BudgetAPI.Services
         {
             IQueryable<CardsPostingsDTO>? cardsPostings = _context.CardsPostings.Include(c => c.Card)
                                                                                 .Include(c => c.People)
-                                                                                .Where(c => c.CardId == cardId && c.Reference == reference && c.Card!.UserId == _user.Id)
+                                                                                .Where(c => (cardId == 0 || c.CardId == cardId) && c.Reference == reference && c.Card!.UserId == _user.Id)
                                                                                 .OrderBy(c => c.Position)
                                                                                 .Select(c => CardPostingToDTO(c));
 

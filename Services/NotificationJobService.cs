@@ -126,10 +126,10 @@ namespace BudgetAPI.Services
 
                             string referenceFormatted = DateTime.ParseExact(e.Reference!, "yyyyMM", CultureInfo.InvariantCulture).ToString("MM/yyyy");
 
-                            string body = $"🗃️ {referenceFormatted}\n" +
+                            string body =  $"🗓️ {dueDate:dd/MM/yyyy}\n" +
                       $"🧾 {e.Description}\n" +
                       $"💸 {e.ToPay.ToString("C", culture)}\n" +
-                      $"🗓️ {dueDate:dd/MM/yyyy}";
+                      $"🗃️ { referenceFormatted}";
 
                             string tag = $"despesa-{e.Id}";
 
