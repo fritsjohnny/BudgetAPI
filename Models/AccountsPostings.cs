@@ -17,5 +17,6 @@
 		public Accounts? Account { get; set; }
 		public Incomes? Income { get; set; }
 		public CardsReceipts? CardReceipt { get; set; }
-	}
+        public decimal? GrossAmount { get; set; }
+    }
 }
