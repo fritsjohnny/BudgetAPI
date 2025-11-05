@@ -53,6 +53,7 @@ builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<IIncomeService, IncomeService>();
 builder.Services.AddScoped<IPeopleService, PeopleService>();
+builder.Services.AddScoped<IAccountApplicationService, AccountApplicationService>();
 builder.Services.AddHttpContextAccessor();
 // Serviço para manter a API acordada
 builder.Services.AddHostedService<KeepAliveService>();
@@ -72,7 +73,7 @@ app.UseCors(options => options//.WithOrigins("http://localhost:4200")
 					   );
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+//if (app.Environment.IsDevelopment())
 {
 	app.UseSwagger();
 	app.UseSwaggerUI();

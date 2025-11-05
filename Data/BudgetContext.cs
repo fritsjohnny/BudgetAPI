@@ -52,6 +52,6 @@ namespace BudgetAPI.Data
         public DbSet<People> People { get; set; }
         public DbSet<CardsReceipts> CardsReceipts { get; set; }
         public DbSet<Categories> Categories { get; set; }
-
+        public DbSet<AccountsApplications> AccountsApplications { get; set; }
     }
 }

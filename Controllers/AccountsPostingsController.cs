@@ -121,13 +121,24 @@ namespace BudgetAPI.Controllers
         }
 
         [HttpGet("yields")]
-        [HttpGet("yields/{reference}")]
-        [HttpGet("yields/{reference}/{accountId}")]
-        public async Task<ActionResult<IEnumerable<AccountsYieldsDTO>>> GetAccountsYields([FromRoute] string? reference = null, [FromRoute] int? accountId = null)
+        public async Task<ActionResult<IEnumerable<AccountsYieldsDTO>>> GetYieldsAll()
         {
-            List<AccountsYieldsDTO> accountsYields = await _accountPostingService.GetAccountsYields(reference, accountId).ToListAsync();
+            var lista = await _accountPostingService.GetAccountsYields(null, null).ToListAsync();
+            return Ok(lista);
+        }
 
-            return accountsYields;
+        [HttpGet("yields/{reference}")]
+        public async Task<ActionResult<IEnumerable<AccountsYieldsDTO>>> GetYieldsByRef(string reference)
+        {
+            var lista = await _accountPostingService.GetAccountsYields(reference, null).ToListAsync();
+            return Ok(lista);
+        }
+
+        [HttpGet("yields/{reference}/{accountId:int}")]
+        public async Task<ActionResult<IEnumerable<AccountsYieldsDTO>>> GetYieldsByRefAccount(string reference, int accountId)
+        {
+            var lista = await _accountPostingService.GetAccountsYields(reference, accountId).ToListAsync();
+            return Ok(lista);
         }
     }
 }
