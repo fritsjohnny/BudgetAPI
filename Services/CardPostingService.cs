@@ -13,7 +13,7 @@ namespace BudgetAPI.Services
         IQueryable<CardsPostings> GetCardsPostingsByDescription(string description);
         IQueryable<CardsPostings> GetCardsPostingsByPeopleId(int peopleId, string reference);
         IQueryable<CardsPostingsPeople> GetCardsPostingsPeople(int cardId, string reference);
-        IQueryable<CardsPostingsDTO> GetCardsPostingsByReferences(string initialReference, string finalReference, int categoryId);
+        IQueryable<CardsPostingsDTO> GetCardsPostingsByReferences(string initialReference, string finalReference, int categoryId, bool others);
         CardsPostingsPeople GetCardsPostingsByPeopleId(int? peopleId, string reference, int cardId);
         Task PutCardsPostings(CardsPostings cardPosting, bool repeatToNextMonths);
         Task PutCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths);
@@ -88,7 +88,7 @@ namespace BudgetAPI.Services
             return cardsPostings;
         }
 
-        public IQueryable<CardsPostingsDTO> GetCardsPostingsByReferences(string initialReference, string finalReference, int categoryId)
+        public IQueryable<CardsPostingsDTO> GetCardsPostingsByReferences(string initialReference, string finalReference, int categoryId, bool others)
         {
             IQueryable<CardsPostingsDTO>? cardsPostings = _context.CardsPostings.Include(c => c.Card)
                                                                                 .Include(c => c.Category)
@@ -96,6 +96,7 @@ namespace BudgetAPI.Services
                                                                                 .Where(c => string.Compare(c.Reference, initialReference) >= 0 &&
                                                                                             string.Compare(c.Reference, finalReference) <= 0 &&
                                                                                             (categoryId == 0 || c.CategoryId == categoryId) &&
+                                                                                            (others == false || c.Others == others) &&
                                                                                             c.Card!.UserId == _user.Id)
                                                                                 .OrderBy(c => c.Position)
                                                                                 .Select(c => CardPostingToDTO(c));

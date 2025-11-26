@@ -1,5 +1,4 @@
-﻿using System.Web;
-using BudgetAPI.Authorization;
+﻿using BudgetAPI.Authorization;
 using BudgetAPI.Models;
 using BudgetAPI.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -64,9 +63,9 @@ namespace BudgetAPI.Controllers
         }
 
         [HttpGet("references")]
-        public async Task<ActionResult<IEnumerable<ExpensesDTO>>> GetExpensesByReferences(string initialReference, string finalReference, int categoryId)
+        public async Task<ActionResult<IEnumerable<ExpensesDTO>>> GetExpensesByReferences(string initialReference, string finalReference, int categoryId, bool others)
         {
-            List<ExpensesDTO> expenses = await _expenseService.GetExpensesByReferences(initialReference, finalReference, categoryId).ToListAsync();
+            List<ExpensesDTO> expenses = await _expenseService.GetExpensesByReferences(initialReference, finalReference, categoryId, others).ToListAsync();
 
             return Ok(expenses);
         }
