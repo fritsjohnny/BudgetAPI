@@ -70,9 +70,9 @@ namespace BudgetAPI.Controllers
         }
 
         [HttpGet("references")]
-        public async Task<ActionResult<IEnumerable<CardsPostingsDTO>>> GetCardsPostingsByReferences(string initialReference, string finalReference)
+        public async Task<ActionResult<IEnumerable<CardsPostingsDTO>>> GetCardsPostingsByReferences(string initialReference, string finalReference, int categoryId)
         {
-            List<CardsPostingsDTO>? cardsPostings = await _cardPostingService.GetCardsPostingsByReferences(initialReference, finalReference).ToListAsync();
+            List<CardsPostingsDTO>? cardsPostings = await _cardPostingService.GetCardsPostingsByReferences(initialReference, finalReference, categoryId).ToListAsync();
 
             return Ok(cardsPostings);
         }
