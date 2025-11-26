@@ -92,6 +92,7 @@ namespace BudgetAPI.Services
                                                                              string.Compare(e.Reference, finalReference) <= 0 &&
                                                                              (categoryId == 0 || e.CategoryId == categoryId) &&
                                                                              (others == false || e.PeopleId != null) &&
+                                                                             e.CardId == null &&
                                                                              e.UserId == _user.Id)
                                                                  .OrderBy(e => e.Position)
                                                                  .Select(e => ExpensesToDTO(e));
