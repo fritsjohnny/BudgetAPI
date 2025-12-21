@@ -5,7 +5,8 @@
         private readonly ILogger<KeepAliveService> _logger;
         private Timer? _timer; 
         private readonly HttpClient _httpClient;
-        private readonly string _pingUrl = "https://budgetapimanagementservice.azure-api.net/api/health";
+        //private readonly string _pingUrl = "https://budgetapimanagementservice.azure-api.net/api/health";
+        private readonly string _pingUrl = "https://budgetappapi-e2dhfhgpgwctgueq.brazilsouth-01.azurewebsites.net/api/health";
 
         public KeepAliveService(ILogger<KeepAliveService> logger)
         {
