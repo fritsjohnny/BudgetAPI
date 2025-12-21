@@ -81,15 +81,27 @@ namespace BudgetAPI.Services
         {
             _logBuilder.AppendLine("");
             _logBuilder.AppendLine($"[INÍCIO HostedService] {DateTime.UtcNow:dd/MM/yyyy HH:mm:ss} UTC");
-            _logBuilder.AppendLine($"➡️ Execução {(jaExecutouInicial ? "agendada" : "imediata")}");
-            _logger.LogInformation("🚀 Executando tarefa de notificação global em {0}", DateTime.Now);
+            _logBuilder.AppendLine($"➡️ Execução {(jaExecutouInicial ? "agendada" : "inicial")}");
+
+            _logger.LogInformation(
+                "🚀 Executando tarefa de notificação global ({Tipo})",
+                jaExecutouInicial ? "AGENDADA" : "INICIAL"
+            );
+
+            // 🔥 OTIMIZAÇÃO CRÍTICA
+            if (!jaExecutouInicial)
+            {
+                _logBuilder.AppendLine("⏩ Execução inicial ignorada para evitar acesso ao banco.");
+                _logger.LogInformation("⏩ Execução inicial ignorada (warm-up apenas).");
+                return;
+            }
 
             using var scope = _serviceProvider.CreateScope();
             var jobService = scope.ServiceProvider.GetRequiredService<INotificationJobService>();
 
             try
             {
-                await jobService.EnviarNotificacoesGlobaisAsync(jaExecutouInicial);
+                await jobService.EnviarNotificacoesGlobaisAsync(true);
                 _logBuilder.AppendLine("✅ Execução da tarefa concluída com sucesso.");
             }
             catch (Exception ex)
@@ -99,10 +111,7 @@ namespace BudgetAPI.Services
             }
 
             _logBuilder.AppendLine($"[FIM HostedService] {DateTime.UtcNow:dd/MM/yyyy HH:mm:ss} UTC");
-
-            // Enviar log acumulado
-            //await SendDebugEmail("📋 Log - DailyNotificationHostedService", _logBuilder.ToString());
-            _logBuilder.Clear(); // 🧹 limpa logs para a próxima execução
+            _logBuilder.Clear();
         }
 
         private async Task SendDebugEmail(string subject, string body)
