@@ -18,5 +18,9 @@
 		public Incomes? Income { get; set; }
 		public CardsReceipts? CardReceipt { get; set; }
         public decimal? GrossAmount { get; set; }
+        public decimal? TotalGrossBalance { get; set; }
+        public decimal? TotalIOF { get; set; }
+        public decimal? TotalIR { get; set; }
+		public int? IOFElapsedDays { get; set; }
     }
 }
