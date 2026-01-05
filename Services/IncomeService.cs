@@ -22,6 +22,7 @@ namespace BudgetAPI.Services
         bool IncomesExists(int id);
         bool ValidarUsuario(int incomeId);
         Task OrderByPreviousMonth(string reference);
+        Task RepeatPreviousMonth(string reference);
     }
 
     public class IncomeService : IIncomeService
@@ -261,35 +262,106 @@ namespace BudgetAPI.Services
         public async Task OrderByPreviousMonth(string reference)
         {
             if (string.IsNullOrWhiteSpace(reference) || reference.Length != 6)
-            {
                 throw new ArgumentException("Referência inválida. O formato esperado é 'yyyyMM'.");
-            }
 
             string previousReference = DateTime.ParseExact(reference, "yyyyMM", null).AddMonths(-1).ToString("yyyyMM");
 
             List<Incomes> previousIncomes = await _context.Incomes.Where(e => e.UserId == _user.Id && e.Reference == previousReference)
-                                                                  .OrderBy(e => e.Position)
-                                                                  .ToListAsync();
+                                                          .OrderBy(e => e.Position)
+                                                          .ToListAsync();
 
             if (!previousIncomes.Any())
-            {
                 throw new InvalidOperationException("Nenhuma receita encontrada para o mês anterior.");
-            }
 
-            foreach (Incomes previousIncome in previousIncomes)
+            List<Incomes> currentIncomes = await _context.Incomes.Where(e => e.UserId == _user.Id && e.Reference == reference)
+                                                         .ToListAsync();
+
+            // aplica posições do mês anterior pelo Description
+            foreach (Incomes prev in previousIncomes)
             {
-                Incomes? income = await _context.Incomes.Where(e => e.UserId == _user.Id &&
-                                                                    e.Reference == reference &&
-                                                                    e.Description == previousIncome.Description)
-                                                        .FirstOrDefaultAsync();
-
+                Incomes? income = currentIncomes.FirstOrDefault(e => e.Description == prev.Description);
+                
                 if (income != null)
-                {
-                    income.Position = previousIncome.Position;
-                }
+                    income.Position = prev.Position;
             }
+
+            // normaliza: garante Position única e sequencial
+            List<Incomes> ordered = currentIncomes.OrderBy(e => e.Position)
+                                                  .ThenBy(e => e.Description)
+                                                  .ToList();
+
+            short pos = 1;
+
+            foreach (Incomes income in ordered)
+                income.Position = pos++;
 
             await _context.SaveChangesAsync();
+        }
+
+        public async Task RepeatPreviousMonth(string reference)
+        {
+            if (string.IsNullOrWhiteSpace(reference) || reference.Length != 6)
+                throw new ArgumentException("Referência inválida. Formato esperado: yyyyMM.");
+
+            string previousReference = DateTime.ParseExact(reference, "yyyyMM", null).AddMonths(-1).ToString("yyyyMM");
+
+            using (var tx = await _context.Database.BeginTransactionAsync())
+            {
+                // 1) Apaga tudo do mês atual (inclusive cartão)
+                List<Incomes> currentIncomes = await _context.Incomes.Where(e => e.UserId == _user.Id && e.Reference == reference).ToListAsync();
+                if (currentIncomes.Any())
+                    _context.Incomes.RemoveRange(currentIncomes);
+
+                // 2) Busca mês anterior e copia SOMENTE não-cartão
+                List<Incomes> previousIncomes = await _context.Incomes.Where(e => e.UserId == _user.Id && e.Reference == previousReference)
+                                                                      .OrderBy(e => e.Position)
+                                                                      .ToListAsync();
+
+                if (!previousIncomes.Any())
+                    throw new InvalidOperationException("Nenhuma receita encontrada no mês anterior.");
+
+                foreach (Incomes prev in previousIncomes.Where(x => x.CardId == null))
+                {
+                    _context.Incomes.Add(new Incomes
+                    {
+                        UserId      = _user.Id,
+                        Reference   = reference,
+                        Position    = prev.Position,
+                        Description = prev.Description,
+                        ToReceive   = prev.ToReceive,
+                        Received    = 0,
+                        Note        = prev.Note,
+                        CardId      = null,
+                        AccountId   = prev.AccountId,
+                        Type        = prev.Type,
+                        PeopleId    = prev.PeopleId,
+                        RelatedId   = null
+                    });
+                }
+
+                await _context.SaveChangesAsync();
+
+                // 3) Por último: dispara a trigger para recriar/atualizar as receitas de cartão
+                // Faz update "no-op" em 1 registro por CardId, apenas onde Others=1
+                List<int> cardPostingIdsToTouch = await (from cp in _context.CardsPostings
+                                                         join c in _context.Cards on cp.CardId equals c.Id
+                                                         where c.UserId == _user.Id &&
+                                                               cp.Reference == reference &&
+                                                               cp.Others == true
+                                                         group cp by cp.CardId into g
+                                                         select g.Min(x => x.Id))
+                                                         .ToListAsync();
+
+                foreach (int id in cardPostingIdsToTouch)
+                {
+                    // UPDATE que não muda nada, só para disparar AFTER UPDATE
+                    await _context.Database.ExecuteSqlRawAsync("UPDATE dbo.CardsPostings SET Reference = Reference WHERE Id = {0}", id);
+                }
+
+                await OrderByPreviousMonth(reference);
+
+                await tx.CommitAsync();
+            }
         }
     }
 }

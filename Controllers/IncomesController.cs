@@ -208,5 +208,19 @@ namespace BudgetAPI.Controllers
                 return Problem(ex.Message + "\n\n" + ex.InnerException?.Message);
             }
         }
+
+        [HttpPost("RepeatPreviousMonth")]
+        public async Task<ActionResult> RepeatPreviousMonth([FromQuery] string reference)
+        {
+            try
+            {
+                await _incomeService.RepeatPreviousMonth(reference);
+                return Ok();
+            }
+            catch (Exception ex)
+            {
+                return Problem(ex.Message + "\n\n" + ex.InnerException?.Message);
+            }
+        }
     }
 }
