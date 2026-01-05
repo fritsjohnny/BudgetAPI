@@ -312,7 +312,7 @@ namespace BudgetAPI.Services
                 if (currentIncomes.Any())
                     _context.Incomes.RemoveRange(currentIncomes);
 
-                // 2) Busca mês anterior e copia SOMENTE não-cartão
+                // 2) Busca mês anterior e copia SOMENTE não-cartão (exceto Tarifa)
                 List<Incomes> previousIncomes = await _context.Incomes.Where(e => e.UserId == _user.Id && e.Reference == previousReference)
                                                                       .OrderBy(e => e.Position)
                                                                       .ToListAsync();
@@ -320,15 +320,17 @@ namespace BudgetAPI.Services
                 if (!previousIncomes.Any())
                     throw new InvalidOperationException("Nenhuma receita encontrada no mês anterior.");
 
-                foreach (Incomes prev in previousIncomes.Where(x => x.CardId == null))
+                foreach (Incomes prev in previousIncomes.Where(x => x.CardId == null && x.Description != "Tarifa"))
                 {
+                    bool isYield = string.Equals(prev.Type, "Y", StringComparison.OrdinalIgnoreCase);
+
                     _context.Incomes.Add(new Incomes
                     {
                         UserId      = _user.Id,
                         Reference   = reference,
                         Position    = prev.Position,
                         Description = prev.Description,
-                        ToReceive   = prev.ToReceive,
+                        ToReceive   = isYield ? 0 : prev.ToReceive,
                         Received    = 0,
                         Note        = prev.Note,
                         CardId      = null,
@@ -341,8 +343,7 @@ namespace BudgetAPI.Services
 
                 await _context.SaveChangesAsync();
 
-                // 3) Por último: dispara a trigger para recriar/atualizar as receitas de cartão
-                // Faz update "no-op" em 1 registro por CardId, apenas onde Others=1
+                // 3) Dispara trigger para recriar/atualizar receitas de cartão (Rec. Cartão)
                 List<int> cardPostingIdsToTouch = await (from cp in _context.CardsPostings
                                                          join c in _context.Cards on cp.CardId equals c.Id
                                                          where c.UserId == _user.Id &&
@@ -354,9 +355,58 @@ namespace BudgetAPI.Services
 
                 foreach (int id in cardPostingIdsToTouch)
                 {
-                    // UPDATE que não muda nada, só para disparar AFTER UPDATE
                     await _context.Database.ExecuteSqlRawAsync("UPDATE dbo.CardsPostings SET Reference = Reference WHERE Id = {0}", id);
                 }
+
+                // 4) Calcula Tarifa (R$ 3 por pessoa distinta que comprou no cartão no mês)
+                int peopleCount = await (from cp in _context.CardsPostings
+                                         join c in _context.Cards on cp.CardId equals c.Id
+                                         where c.UserId == _user.Id &&
+                                               cp.Reference == reference &&
+                                               cp.Others == true &&
+                                               cp.PeopleId != null
+                                         select cp.PeopleId!.Value)
+                                         .Distinct()
+                                         .CountAsync();
+
+                decimal tarifa = peopleCount * 3m;
+
+                Incomes? tarifaIncome = await _context.Incomes.Where(i => 
+                                                                    i.UserId == _user.Id && 
+                                                                    i.Reference == reference && 
+                                                                    i.CardId == null && 
+                                                                    i.Description == "Tarifa")
+                                                              .FirstOrDefaultAsync();
+
+                if (tarifaIncome == null)
+                {
+                    short maxPos = await _context.Incomes.Where(i => i.UserId == _user.Id && i.Reference == reference)
+                                                         .Select(i => i.Position)
+                                                         .MaxAsync() ?? 0;
+
+                    _context.Incomes.Add(new Incomes
+                    {
+                        UserId      = _user.Id,
+                        Reference   = reference,
+                        Position    = (short)(maxPos + 1),
+                        Description = "Tarifa",
+                        ToReceive   = tarifa,
+                        Received    = 0,
+                        Note        = null,
+                        CardId      = null,
+                        AccountId   = null,
+                        Type        = "R",
+                        PeopleId    = null,
+                        RelatedId   = null
+                    });
+                }
+                else
+                {
+                    tarifaIncome.ToReceive = tarifa;
+                    tarifaIncome.Received  = 0;
+                }
+
+                await _context.SaveChangesAsync();
 
                 await OrderByPreviousMonth(reference);
 
