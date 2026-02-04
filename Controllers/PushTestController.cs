@@ -5,6 +5,9 @@ namespace BudgetAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    #if !DEBUG
+    [ApiExplorerSettings(IgnoreApi = true)]
+    #endif
     public class PushTestController : ControllerBase
     {
         private readonly FirebaseNotificationService _firebase;

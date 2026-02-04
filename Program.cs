@@ -72,8 +72,8 @@ app.UseCors(options => options//.WithOrigins("http://localhost:4200")
 					   .AllowAnyOrigin()
 					   );
 
-// Configure the HTTP request pipeline.
-//if (app.Environment.IsDevelopment())
+// Swagger middleware (liga só em dev)
+if (app.Environment.IsDevelopment())
 {
 	app.UseSwagger();
 	app.UseSwaggerUI();

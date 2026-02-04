@@ -363,3 +363,6 @@ MigrationBackup/
 FodyWeavers.xsd
 /Keys/firebase-adminsdk.json
 appsettings.Development.json
+
+# zip files
+*.zip
