@@ -366,3 +366,8 @@ appsettings.Development.json
 
 # zip files
 *.zip
+
+# Publish profiles
+Properties/PublishProfiles/
+Properties/serviceDependencies*.json
+Properties/ServiceDependencies/
