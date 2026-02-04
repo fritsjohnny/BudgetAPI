@@ -15,12 +15,26 @@ namespace BudgetAPI.Services
 
             if (!_initialized)
             {
-                string path = configuration["Firebase:KeyFilePath"];
+                string keyJson = configuration["Firebase:KeyJson"] ?? "";
+                string keyPath = configuration["Firebase:KeyFilePath"] ?? "";
 
-                FirebaseApp.Create(new AppOptions()
+                GoogleCredential credential;
+
+                if (!string.IsNullOrWhiteSpace(keyJson))
                 {
-                    Credential = GoogleCredential.FromFile(path)
-                });
+                    credential = GoogleCredential.FromJson(keyJson);
+                }
+                else if (!string.IsNullOrWhiteSpace(keyPath))
+                {
+                    credential = GoogleCredential.FromFile(keyPath);
+                }
+                else
+                {
+                    throw new InvalidOperationException("Firebase não configurado. Defina Firebase:KeyJson ou Firebase:KeyFilePath.");
+                }
+
+                FirebaseApp.Create(new AppOptions { Credential = credential });
+
                 _initialized = true;
             }
         }

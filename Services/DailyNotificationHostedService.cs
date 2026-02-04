@@ -6,16 +6,20 @@ namespace BudgetAPI.Services
 {
     public class DailyNotificationHostedService : IHostedService, IDisposable
     {
+        private readonly IConfiguration _configuration;
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<DailyNotificationHostedService> _logger;
         private Timer? _timer;
         private bool _jaExecutouInicial = false;
         private readonly StringBuilder _logBuilder = new();
 
+
         public DailyNotificationHostedService(
+            IConfiguration configuration, 
             IServiceProvider serviceProvider,
             ILogger<DailyNotificationHostedService> logger)
         {
+            _configuration = configuration;
             _serviceProvider = serviceProvider;
             _logger = logger;
         }
@@ -118,16 +122,34 @@ namespace BudgetAPI.Services
         {
             try
             {
-                var message = new MailMessage();
-                message.From = new MailAddress("frits.johnny@gmail.com");
-                message.To.Add("johnny.frits@outlook.com");
+                using var message = new MailMessage();
+
+                string smtpUser  = _configuration["BUDGETAPI_SMTP_USER"] ?? "";
+                string smtpPass  = _configuration["BUDGETAPI_SMTP_PASS"] ?? "";
+                string emailFrom = _configuration["BUDGETAPI_EMAIL_FROM"] ?? "";
+                string emailTo   = _configuration["BUDGETAPI_EMAIL_TO"] ?? "";
+
+                if (string.IsNullOrWhiteSpace(smtpUser) || string.IsNullOrWhiteSpace(smtpPass))
+                {
+                    _logger.LogWarning("⚠️ SMTP não configurado (BUDGETAPI_SMTP_USER/BUDGETAPI_SMTP_PASS). E-mail não será enviado.");
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(emailFrom) || string.IsNullOrWhiteSpace(emailTo))
+                {
+                    _logger.LogWarning("⚠️ E-mail não configurado (BUDGETAPI_EMAIL_FROM/BUDGETAPI_EMAIL_TO). E-mail não será enviado.");
+                    return;
+                }
+
+                message.From = new MailAddress(emailFrom);
+                message.To.Add(emailTo);
                 message.Subject = subject;
                 message.Body = body;
                 message.IsBodyHtml = false;
 
                 using var client = new SmtpClient("smtp.gmail.com", 587)
                 {
-                    Credentials = new NetworkCredential("frits.johnny@gmail.com", "jyovlyendozbwhyi"),
+                    Credentials = new NetworkCredential(smtpUser, smtpPass),
                     EnableSsl = true
                 };
 

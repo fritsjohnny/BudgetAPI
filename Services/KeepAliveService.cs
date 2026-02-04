@@ -5,13 +5,14 @@
         private readonly ILogger<KeepAliveService> _logger;
         private Timer? _timer; 
         private readonly HttpClient _httpClient;
-        //private readonly string _pingUrl = "https://budgetapimanagementservice.azure-api.net/api/health";
-        private readonly string _pingUrl = "https://budgetappapi-e2dhfhgpgwctgueq.brazilsouth-01.azurewebsites.net/api/health";
+        private readonly string _pingUrl;
 
-        public KeepAliveService(ILogger<KeepAliveService> logger)
+        public KeepAliveService(ILogger<KeepAliveService> logger, IConfiguration configuration)
         {
             _logger = logger;
             _httpClient = new HttpClient();
+
+            _pingUrl = configuration["KeepAlive:PingUrl"] ?? string.Empty;
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
@@ -28,6 +29,12 @@
         {
             try
             {
+                if (string.IsNullOrWhiteSpace(_pingUrl))
+                {
+                    _logger.LogError("URL para ping não encontrada!");
+                    return; 
+                }
+
                 var response = await _httpClient.GetAsync(_pingUrl);
                 _logger.LogInformation("Ping enviado - status: {StatusCode}", response.StatusCode);
             }

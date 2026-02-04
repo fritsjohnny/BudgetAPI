@@ -23,18 +23,21 @@ namespace BudgetAPI.Services
 
     public class NotificationJobService : INotificationJobService
     {
+        private readonly IConfiguration _configuration;
         private readonly BudgetContext _context;
         private readonly FirebaseNotificationService _firebase;
         private readonly ILogger<NotificationJobService> _logger;
 
         public NotificationJobService(
+            IConfiguration configuration, 
             BudgetContext context,
             FirebaseNotificationService firebase,
             ILogger<NotificationJobService> logger)
         {
-            _context = context;
-            _firebase = firebase;
-            _logger = logger;
+            _configuration = configuration;
+            _context       = context;
+            _firebase      = firebase;
+            _logger        = logger;
         }
 
         public async Task EnviarNotificacoesGlobaisAsync(bool jaExecutouInicial)
@@ -184,17 +187,35 @@ namespace BudgetAPI.Services
         {
             try
             {
-                var message = new MailMessage();
+                using var message = new MailMessage();
 
-                message.From = new MailAddress("frits.johnny@gmail.com");
-                message.To.Add("johnny.frits@outlook.com");
+                string emailFrom = _configuration["BUDGETAPI_EMAIL_FROM"] ?? "";
+                string emailTo   = _configuration["BUDGETAPI_EMAIL_TO"] ?? "";
+
+                if (string.IsNullOrWhiteSpace(emailFrom) || string.IsNullOrWhiteSpace(emailTo))
+                {
+                    _logger.LogWarning("⚠️ E-mail não configurado (BUDGETAPI_EMAIL_FROM/BUDGETAPI_EMAIL_TO). Auditoria por e-mail não será enviada.");
+                    return;
+                }
+
+                message.From = new MailAddress(emailFrom);
+                message.To.Add(emailTo);
                 message.Subject    = subject;
                 message.Body       = body;
                 message.IsBodyHtml = false;
 
+                string smtpUser = _configuration["BUDGETAPI_SMTP_USER"] ?? "";
+                string smtpPass = _configuration["BUDGETAPI_SMTP_PASS"] ?? "";
+
+                if (string.IsNullOrWhiteSpace(smtpUser) || string.IsNullOrWhiteSpace(smtpPass))
+                {
+                    _logger.LogWarning("⚠️ SMTP não configurado (BUDGETAPI_SMTP_USER/BUDGETAPI_SMTP_PASS). E-mail de auditoria não será enviado.");
+                    return;
+                }
+
                 using var client = new SmtpClient("smtp.gmail.com", 587)
                 {
-                    Credentials = new NetworkCredential("frits.johnny@gmail.com", "jyovlyendozbwhyi"),
+                    Credentials = new NetworkCredential(smtpUser, smtpPass),
                     EnableSsl   = true
                 };
 
