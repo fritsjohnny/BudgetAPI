@@ -70,6 +70,21 @@ namespace BudgetAPI.Controllers
             return Ok(expenses);
         }
 
+        [HttpGet("DueDateRange")]
+        public async Task<ActionResult<IEnumerable<ExpensesDueDateReportDTO>>> GetExpensesByDueDateRange([FromQuery] DateTime initialDate, [FromQuery] DateTime finalDate)
+        {
+            try
+            {
+                List<ExpensesDueDateReportDTO> expenses = await _expenseService.GetExpensesByDueDateRange(initialDate, finalDate).ToListAsync();
+
+                return Ok(expenses);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Erro ao buscar despesas por vencimento ({initialDate:yyyy-MM-dd} a {finalDate:yyyy-MM-dd}): {ex.Message}");
+            }
+        }
+
         [HttpGet("reference2/{reference}")]
         public async Task<ActionResult<IEnumerable<ExpensesDTO>>> GetMyExpensesByReference(string reference)
         {

@@ -28,6 +28,8 @@ namespace BudgetAPI.Services
         Task OrderByPreviousMonth(string reference);
         Task<List<Expenses>> GetUpcomingOrOverdueExpenses(int daysAhead = 1);
         Task<ExpensesDTO?> AjustarValorComBaseNaCategoria(int expenseId);
+
+        IQueryable<ExpensesDueDateReportDTO> GetExpensesByDueDateRange(DateTime initialDate, DateTime finalDate);
     }
 
     public class ExpenseService : IExpenseService
@@ -96,6 +98,38 @@ namespace BudgetAPI.Services
                                                                              e.UserId == _user.Id)
                                                                  .OrderBy(e => e.Position)
                                                                  .Select(e => ExpensesToDTO(e));
+
+            return expenses;
+        }
+
+        public IQueryable<ExpensesDueDateReportDTO> GetExpensesByDueDateRange(DateTime initialDate, DateTime finalDate)
+        {
+            DateTime start = initialDate.Date;
+            DateTime end   = finalDate.Date.AddDays(1).AddTicks(-1); // inclui o dia final (23:59:59.9999999)
+
+            IQueryable<ExpensesDueDateReportDTO> expenses = _context.Expenses
+                                                                     .Include(e => e.Category)
+                                                                     .Where(e => e.UserId == _user.Id &&
+                                                                                 e.CardId == null &&
+                                                                                 e.DueDate != null &&
+                                                                                 e.DueDate >= start &&
+                                                                                 e.DueDate <= end &&
+                                                                                 (e.ToPay - e.Paid) > 0)
+                                                                     .OrderBy(e => e.DueDate)
+                                                                     .ThenBy(e => e.Position)
+                                                                     .Select(e => new ExpensesDueDateReportDTO
+                                                                     {
+                                                                         Id           = e.Id,
+                                                                         DueDate      = e.DueDate,
+                                                                         Reference    = e.Reference,
+                                                                         Description  = e.Description,
+                                                                         ToPay        = e.ToPay,
+                                                                         Paid         = e.Paid,
+                                                                         Remaining    = (e.ToPay - e.Paid),
+                                                                         CategoryId   = e.CategoryId,
+                                                                         CategoryName = e.Category != null ? e.Category.Name : null,
+                                                                         PeopleId     = e.PeopleId,
+                                                                     });
 
             return expenses;
         }
