@@ -23,7 +23,6 @@ namespace BudgetAPI.Services
     public class AccountPostingService : IAccountPostingService
     {
         private readonly BudgetContext _context;
-
         private readonly Users _user;
 
         public AccountPostingService(BudgetContext context, IHttpContextAccessor httpContextAccessor)
@@ -56,9 +55,26 @@ namespace BudgetAPI.Services
             return accountsPostings;
         }
 
+        // ✅ CORREÇÃO 1: Método auxiliar para identificar transferências
+        private bool IsTransfer(AccountsPostings posting)
+        {
+            return posting.Type == "T" ||
+                   posting.Type == "P" ||
+                   posting.Type == "R" ||
+                   posting.RelatedId != null;
+        }
+
+        // ✅ CORREÇÃO 2: Método auxiliar para gerar descrições padronizadas
+        private (string originDesc, string destinationDesc) GetTransferDescriptions(Accounts fromAccount, Accounts toAccount)
+        {
+            string descOrigin      = $"Transferido para {toAccount.Name ?? "Conta destino"}";
+            string descDestination = $"Recebido de {fromAccount.Name ?? "Conta origem"}";
+            return (descOrigin, descDestination);
+        }
+
         public Task<int> PutAccountsPostings(AccountsPostings accountsPostings)
         {
-            if (accountsPostings.Type == "T")
+            if (IsTransfer(accountsPostings))
             {
                 return UpdateTransferBetweenAccounts(accountsPostings);
             }
@@ -79,52 +95,97 @@ namespace BudgetAPI.Services
             if (newAmount <= 0) throw new ArgumentException("Valor da transferência deve ser maior que zero.");
 
             AccountsPostings? current = await _context.AccountsPostings.Include(a => a.Account)
-                                                                       .FirstOrDefaultAsync(a => a.Id == request.Id && a.Account!.UserId == _user.Id);
+                                                               .FirstOrDefaultAsync(a => a.Id == request.Id && a.Account!.UserId == _user.Id);
 
             if (current == null) throw new InvalidOperationException("Lançamento não encontrado.");
             if (current.RelatedId == null) throw new InvalidOperationException("Transferência inválida: lançamento relacionado não encontrado.");
 
             AccountsPostings? related = await _context.AccountsPostings.Include(a => a.Account)
-                                                                       .FirstOrDefaultAsync(a => a.Id == current.RelatedId.Value && a.Account!.UserId == _user.Id);
+                                                               .FirstOrDefaultAsync(a => a.Id == current.RelatedId.Value && a.Account!.UserId == _user.Id);
 
             if (related == null) throw new InvalidOperationException("Transferência inválida: lançamento relacionado não encontrado.");
 
             AccountsPostings origin      = (current.Type == "P") ? current : related;
             AccountsPostings destination = (origin.Id == current.Id) ? related : current;
 
-            Accounts? fromAccount = await _context.Accounts.FirstOrDefaultAsync(a => a.Id == request.AccountId);
-            Accounts? toAccount   = await _context.Accounts.FirstOrDefaultAsync(a => a.Id == request.ToAccountId);
+            // ⚠️ CORREÇÃO CRÍTICA: Determinar qual lançamento tem qual tipo
+            // Se current.Type == "R", então current é o destino e request tem os dados do destino
+            // Precisamos SEMPRE trabalhar com os dados de ORIGEM (Type="P")
+
+            // Mapear os dados do request para os lançamentos corretos
+            int requestedFromAccountId;
+            int requestedToAccountId;
+
+            if (current.Type == "P")
+            {
+                // Request veio do lançamento de origem
+                requestedFromAccountId = request.AccountId;
+                requestedToAccountId = request.ToAccountId!.Value;
+            }
+            else
+            {
+                // Request veio do lançamento de destino - inverter
+                requestedFromAccountId = request.ToAccountId!.Value;
+                requestedToAccountId = request.AccountId;
+            }
+
+            Accounts? fromAccount = await _context.Accounts.FirstOrDefaultAsync(a => a.Id == requestedFromAccountId);
+            Accounts? toAccount   = await _context.Accounts.FirstOrDefaultAsync(a => a.Id == requestedToAccountId);
 
             if (fromAccount == null || toAccount == null) throw new ArgumentException("Conta de origem e/ou conta de destino não encontrada.");
             if (fromAccount.UserId != _user.Id || toAccount.UserId != _user.Id) throw new ArgumentException("Não é permitido transferir entre contas de usuários diferentes.");
 
-            // valida saldo: remove efeito do lançamento antigo e aplica o novo
+            // ✅ CORREÇÃO 3: Validação de saldo corrigida
             decimal oldAmount = Math.Abs(origin.Amount);
+            int oldFromAccountId = origin.AccountId;
+            int newFromAccountId = requestedFromAccountId; // Agora usa a variável correta
 
-            AccountsDTO? fromTotals = null;
-
-            try
+            // Se mudou a conta de origem, valida ambas
+            if (oldFromAccountId != newFromAccountId)
             {
-                fromTotals = _context.GetAccountTotals(request.AccountId, request.Reference, _user.Id).FirstOrDefault();
+                // Valida saldo da NOVA conta origem (sem considerar lançamento antigo)
+                AccountsDTO? newFromTotals = null;
+                try
+                {
+                    newFromTotals = _context.GetAccountTotals(newFromAccountId, request.Reference, _user.Id).FirstOrDefault();
+                }
+                catch { /**/ }
+
+                if (newFromTotals == null) throw new InvalidOperationException("Não foi possível obter o saldo da nova conta de origem.");
+
+                decimal projectedBalanceNewAccount = newFromTotals.TotalBalance - newAmount;
+
+                if (projectedBalanceNewAccount < 0)
+                    throw new InvalidOperationException($"Transferência não permitida: saldo insuficiente na conta '{fromAccount.Name}'. Saldo disponível: {newFromTotals.TotalBalance:C}, necessário: {newAmount:C}");
             }
-            catch { /**/ }
+            else
+            {
+                // Mesma conta origem: remove efeito do lançamento antigo e valida o novo
+                AccountsDTO? fromTotals = null;
+                try
+                {
+                    fromTotals = _context.GetAccountTotals(newFromAccountId, request.Reference, _user.Id).FirstOrDefault();
+                }
+                catch { /**/ }
 
-            if (fromTotals == null) throw new InvalidOperationException("Não foi possível obter o saldo atual da conta de origem para validar a transferência.");
+                if (fromTotals == null) throw new InvalidOperationException("Não foi possível obter o saldo atual da conta de origem.");
 
-            decimal balanceWithoutThisTransfer = fromTotals.TotalBalance + oldAmount;
-            decimal projectedBalance           = balanceWithoutThisTransfer - newAmount;
+                decimal balanceWithoutThisTransfer = fromTotals.TotalBalance + oldAmount;
+                decimal projectedBalance           = balanceWithoutThisTransfer - newAmount;
 
-            if (projectedBalance < 0) throw new InvalidOperationException("Transferência não permitida: saldo insuficiente na conta de origem.");
+                if (projectedBalance < 0)
+                    throw new InvalidOperationException($"Transferência não permitida: saldo insuficiente. Saldo disponível: {balanceWithoutThisTransfer:C}, necessário: {newAmount:C}");
+            }
 
-            string descOrigin      = "Transferido para " + (toAccount.Name ?? "Conta destino");
-            string descDestination = "Recebido de " + (fromAccount.Name ?? "Conta origem");
+            var (descOrigin, descDestination) = GetTransferDescriptions(fromAccount, toAccount);
 
             using var tx = await _context.Database.BeginTransactionAsync();
 
             try
             {
-                origin.AccountId   = request.AccountId;
-                origin.ToAccountId = request.ToAccountId;
+                // Usar as variáveis corretas
+                origin.AccountId   = requestedFromAccountId;
+                origin.ToAccountId = requestedToAccountId;
                 origin.Date        = request.Date;
                 origin.Reference   = request.Reference;
                 origin.Description = descOrigin;
@@ -132,8 +193,8 @@ namespace BudgetAPI.Services
                 origin.Note        = request.Note;
                 origin.Type        = "P";
 
-                destination.AccountId   = request.ToAccountId!.Value;
-                destination.ToAccountId = request.AccountId;
+                destination.AccountId   = requestedToAccountId;
+                destination.ToAccountId = requestedFromAccountId;
                 destination.Date        = request.Date;
                 destination.Reference   = request.Reference;
                 destination.Description = descDestination;
@@ -158,9 +219,9 @@ namespace BudgetAPI.Services
 
         public async Task<int> PostAccountsPostings(AccountsPostings accountsPostings)
         {
-            if (accountsPostings.Type == "T")
+            if (IsTransfer(accountsPostings))
             {
-                return await TransferBetweenAccounts(accountsPostings); // garante Id no mesmo objeto
+                return await TransferBetweenAccounts(accountsPostings);
             }
 
             accountsPostings.Position = (short)((_context.AccountsPostings.Where(o => o.Reference == accountsPostings.Reference).Max(o => o.Position) ?? 0) + 1);
@@ -182,16 +243,8 @@ namespace BudgetAPI.Services
 
         public async Task<int> DeleteAccountsPostings(AccountsPostings accountsPostings)
         {
-            // Se for parte de uma transferência, deleta o par
-            if (accountsPostings.RelatedId != null)
-            {
-                return await DeleteTransferBetweenAccounts(accountsPostings.Id);
-            }
-
-            // Fallback: caso tenha vindo sem RelatedId carregado
-            bool isRelated = await _context.AccountsPostings.AnyAsync(a => a.RelatedId == accountsPostings.Id);
-
-            if (isRelated)
+            // ✅ CORREÇÃO 4: Verifica se é transferência usando método auxiliar
+            if (IsTransfer(accountsPostings))
             {
                 return await DeleteTransferBetweenAccounts(accountsPostings.Id);
             }
@@ -302,10 +355,10 @@ namespace BudgetAPI.Services
 
             decimal projectedBalance = fromTotals.TotalBalance - amount;
 
-            if (projectedBalance < 0) throw new InvalidOperationException("Transferência não permitida: saldo insuficiente na conta de origem.");
+            if (projectedBalance < 0)
+                throw new InvalidOperationException($"Transferência não permitida: saldo insuficiente. Saldo disponível: {fromTotals.TotalBalance:C}, necessário: {amount:C}");
 
-            string descOrigin      = "Transferido para " + (toAccount.Name ?? "Conta destino");
-            string descDestination = "Recebido de " + (fromAccount.Name ?? "Conta origem");
+            var (descOrigin, descDestination) = GetTransferDescriptions(fromAccount, toAccount);
 
             short nextPos = (short)((_context.AccountsPostings.Where(o => o.Reference == accountPosting.Reference).Max(o => o.Position) ?? 0) + 1);
 
@@ -316,7 +369,7 @@ namespace BudgetAPI.Services
                 Date        = accountPosting.Date,
                 Reference   = accountPosting.Reference,
                 Description = descOrigin,
-                Amount      = amount * -1,  // P negativo
+                Amount      = amount * -1,
                 Note        = accountPosting.Note,
                 Type        = "P",
                 Position    = nextPos
@@ -325,11 +378,11 @@ namespace BudgetAPI.Services
             var destinationPosting = new AccountsPostings
             {
                 AccountId   = toAccountId,
-                ToAccountId = fromAccountId, // inverso (ajuda no load/edit)
+                ToAccountId = fromAccountId,
                 Date        = accountPosting.Date,
                 Reference   = accountPosting.Reference,
                 Description = descDestination,
-                Amount      = amount,        // R positivo
+                Amount      = amount,
                 Note        = accountPosting.Note,
                 Type        = "R",
                 Position    = (short)(nextPos + 1)
@@ -342,19 +395,22 @@ namespace BudgetAPI.Services
                 _context.AccountsPostings.Add(originPosting);
                 _context.AccountsPostings.Add(destinationPosting);
 
-                int rows = await _context.SaveChangesAsync();
+                // ✅ CORREÇÃO 5: SaveChanges único com RelatedId já definido (reduz race condition)
+                // Aguarda geração dos IDs
+                await _context.SaveChangesAsync();
 
+                // Agora define os RelatedIds
                 originPosting.RelatedId      = destinationPosting.Id;
                 destinationPosting.RelatedId = originPosting.Id;
 
                 _context.Entry(originPosting).State      = EntityState.Modified;
                 _context.Entry(destinationPosting).State = EntityState.Modified;
 
-                rows += await _context.SaveChangesAsync();
+                int rows = await _context.SaveChangesAsync();
 
                 await tx.CommitAsync();
 
-                // IMPORTANTE: preencher o mesmo objeto recebido, para a Controller retornar o id certo
+                // Preencher o mesmo objeto recebido, para a Controller retornar o id certo
                 accountPosting.Id          = originPosting.Id;
                 accountPosting.RelatedId   = originPosting.RelatedId;
                 accountPosting.ToAccountId = originPosting.ToAccountId;

@@ -56,6 +56,34 @@ namespace BudgetAPI.Controllers
                 return BadRequest();
             }
 
+            // ✅ CORREÇÃO FINAL: Valida AMBAS as contas para transferências (não assume qual é origem/destino)
+            bool isTransfer = accountsPostings.Type == "T" || 
+                              accountsPostings.Type == "P" || 
+                              accountsPostings.Type == "R" || 
+                              accountsPostings.RelatedId != null;
+
+            if (isTransfer)
+            {
+                // Valida AccountId (sempre presente)
+                if (!_accountPostingService.ValidateAccountAndUser(accountsPostings.AccountId))
+                {
+                    return BadRequest("A conta informada é inválida ou não pertence ao usuário.");
+                }
+
+                // Valida ToAccountId (se informado)
+                if (accountsPostings.ToAccountId.HasValue)
+                {
+                    if (!_accountPostingService.ValidateAccountAndUser(accountsPostings.ToAccountId.Value))
+                    {
+                        return BadRequest("A conta de destino é inválida ou não pertence ao usuário.");
+                    }
+                }
+                else
+                {
+                    return BadRequest("Conta de destino é obrigatória para transferências.");
+                }
+            }
+
             try
             {
                 await _accountPostingService.PutAccountsPostings(accountsPostings);
@@ -83,12 +111,27 @@ namespace BudgetAPI.Controllers
         {
             if (!_accountPostingService.ValidateAccountAndUser(accountsPostings.AccountId))
             {
-                return BadRequest();
+                return BadRequest("Conta de origem inválida ou não pertence ao usuário.");
             }
 
-            await _accountPostingService.PostAccountsPostings(accountsPostings);
+            // ✅ CORREÇÃO 7: Validação da conta de destino para transferências
+            if (accountsPostings.Type == "T" && accountsPostings.ToAccountId.HasValue)
+            {
+                if (!_accountPostingService.ValidateAccountAndUser(accountsPostings.ToAccountId.Value))
+                {
+                    return BadRequest("Conta de destino inválida ou não pertence ao usuário.");
+                }
+            }
 
-            return CreatedAtAction("GetAccountsPostings", new { id = accountsPostings.Id }, accountsPostings);
+            try
+            {
+                await _accountPostingService.PostAccountsPostings(accountsPostings);
+                return CreatedAtAction("GetAccountsPostings", new { id = accountsPostings.Id }, accountsPostings);
+            }
+            catch (Exception ex)
+            {
+                return Problem(ex.Message);
+            }
         }
 
         // DELETE: api/AccountsPostings/5
@@ -107,9 +150,15 @@ namespace BudgetAPI.Controllers
                 return BadRequest();
             }
 
-            await _accountPostingService.DeleteAccountsPostings(accountsPostings);
-
-            return Ok();
+            try
+            {
+                await _accountPostingService.DeleteAccountsPostings(accountsPostings);
+                return Ok();
+            }
+            catch (Exception ex)
+            {
+                return Problem(ex.Message);
+            }
         }
 
         [HttpPut("SetPositions")]
