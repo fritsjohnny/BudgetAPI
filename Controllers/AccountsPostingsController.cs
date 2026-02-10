@@ -56,32 +56,40 @@ namespace BudgetAPI.Controllers
                 return BadRequest();
             }
 
-            // ✅ CORREÇÃO FINAL: Valida AMBAS as contas para transferências (não assume qual é origem/destino)
-            bool isTransfer = accountsPostings.Type == "T" || 
-                              accountsPostings.Type == "P" || 
-                              accountsPostings.Type == "R" || 
-                              accountsPostings.RelatedId != null;
-
-            if (isTransfer)
+            // Buscar do banco para verificar se É transferência
+            var existingPosting = await _accountPostingService.GetAccountsPostings(id).FirstOrDefaultAsync();
+            
+            if (existingPosting == null)
             {
-                // Valida AccountId (sempre presente)
+                return NotFound();
+            }
+
+            // Verifica se o registro no BANCO é transferência (não confia no request)
+            bool isTransferInDatabase = existingPosting.RelatedId.HasValue;
+
+            if (isTransferInDatabase)
+            {
+                // É transferência no banco - validar como transferência independente do que veio no request
+                if (!accountsPostings.ToAccountId.HasValue)
+                {
+                    return BadRequest("Conta de destino é obrigatória para transferências.");
+                }
+
+                // Valida AccountId
                 if (!_accountPostingService.ValidateAccountAndUser(accountsPostings.AccountId))
                 {
                     return BadRequest("A conta informada é inválida ou não pertence ao usuário.");
                 }
 
-                // Valida ToAccountId (se informado)
-                if (accountsPostings.ToAccountId.HasValue)
+                // Valida ToAccountId
+                if (!_accountPostingService.ValidateAccountAndUser(accountsPostings.ToAccountId.Value))
                 {
-                    if (!_accountPostingService.ValidateAccountAndUser(accountsPostings.ToAccountId.Value))
-                    {
-                        return BadRequest("A conta de destino é inválida ou não pertence ao usuário.");
-                    }
+                    return BadRequest("A conta de destino é inválida ou não pertence ao usuário.");
                 }
-                else
-                {
-                    return BadRequest("Conta de destino é obrigatória para transferências.");
-                }
+
+                // Força Type="T" e RelatedId para o service processar como transferência
+                accountsPostings.Type = "T";
+                accountsPostings.RelatedId = existingPosting.RelatedId;
             }
 
             try
@@ -114,7 +122,7 @@ namespace BudgetAPI.Controllers
                 return BadRequest("Conta de origem inválida ou não pertence ao usuário.");
             }
 
-            // ✅ CORREÇÃO 7: Validação da conta de destino para transferências
+            // Validação da conta de destino para transferências
             if (accountsPostings.Type == "T" && accountsPostings.ToAccountId.HasValue)
             {
                 if (!_accountPostingService.ValidateAccountAndUser(accountsPostings.ToAccountId.Value))

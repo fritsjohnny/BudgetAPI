@@ -55,16 +55,17 @@ namespace BudgetAPI.Services
             return accountsPostings;
         }
 
-        // ✅ CORREÇÃO 1: Método auxiliar para identificar transferências
+        // Método auxiliar para identificar transferências
         private bool IsTransfer(AccountsPostings posting)
         {
-            return posting.Type == "T" ||
-                   posting.Type == "P" ||
-                   posting.Type == "R" ||
-                   posting.RelatedId != null;
+            // Uma transferência pode ser identificada por:
+            // 1. Type="T" → Request do frontend para criar/editar transferência
+            // 2. Type="P" ou "R" COM RelatedId → Lançamento de transferência já persistido no banco
+            return posting.Type == "T" || 
+                   (posting.RelatedId.HasValue && (posting.Type == "P" || posting.Type == "R"));
         }
 
-        // ✅ CORREÇÃO 2: Método auxiliar para gerar descrições padronizadas
+        // Método auxiliar para gerar descrições padronizadas
         private (string originDesc, string destinationDesc) GetTransferDescriptions(Accounts fromAccount, Accounts toAccount)
         {
             string descOrigin      = $"Transferido para {toAccount.Name ?? "Conta destino"}";
@@ -105,12 +106,25 @@ namespace BudgetAPI.Services
 
             if (related == null) throw new InvalidOperationException("Transferência inválida: lançamento relacionado não encontrado.");
 
+            // Validar Type do lançamento no banco
+            if (current.Type != "P" && current.Type != "R")
+            {
+                throw new InvalidOperationException($"Tipo de lançamento inválido: '{current.Type}'. Esperado 'P' ou 'R' para transferências.");
+            }
+
+            if (related.Type != "P" && related.Type != "R")
+            {
+                throw new InvalidOperationException($"Tipo do lançamento relacionado inválido: '{related.Type}'. Esperado 'P' ou 'R' para transferências.");
+            }
+
+            // Impedir mudança de Reference
+            if (current.Reference != request.Reference)
+            {
+                throw new InvalidOperationException("Não é permitido alterar a referência (mês) de uma transferência. Delete e crie uma nova transferência.");
+            }
+
             AccountsPostings origin      = (current.Type == "P") ? current : related;
             AccountsPostings destination = (origin.Id == current.Id) ? related : current;
-
-            // ⚠️ CORREÇÃO CRÍTICA: Determinar qual lançamento tem qual tipo
-            // Se current.Type == "R", então current é o destino e request tem os dados do destino
-            // Precisamos SEMPRE trabalhar com os dados de ORIGEM (Type="P")
 
             // Mapear os dados do request para os lançamentos corretos
             int requestedFromAccountId;
@@ -135,10 +149,10 @@ namespace BudgetAPI.Services
             if (fromAccount == null || toAccount == null) throw new ArgumentException("Conta de origem e/ou conta de destino não encontrada.");
             if (fromAccount.UserId != _user.Id || toAccount.UserId != _user.Id) throw new ArgumentException("Não é permitido transferir entre contas de usuários diferentes.");
 
-            // ✅ CORREÇÃO 3: Validação de saldo corrigida
+            // Validação de saldo corrigida
             decimal oldAmount = Math.Abs(origin.Amount);
             int oldFromAccountId = origin.AccountId;
-            int newFromAccountId = requestedFromAccountId; // Agora usa a variável correta
+            int newFromAccountId = requestedFromAccountId;
 
             // Se mudou a conta de origem, valida ambas
             if (oldFromAccountId != newFromAccountId)
@@ -183,7 +197,6 @@ namespace BudgetAPI.Services
 
             try
             {
-                // Usar as variáveis corretas
                 origin.AccountId   = requestedFromAccountId;
                 origin.ToAccountId = requestedToAccountId;
                 origin.Date        = request.Date;
@@ -230,7 +243,7 @@ namespace BudgetAPI.Services
 
             if (accountsPostings.ExpenseId != null && accountsPostings.Type == "P")
             {
-                var expense = _context.Expenses.Find(accountsPostings.ExpenseId);
+                var expense = await _context.Expenses.FindAsync(accountsPostings.ExpenseId);
 
                 if (expense != null)
                 {
@@ -243,7 +256,7 @@ namespace BudgetAPI.Services
 
         public async Task<int> DeleteAccountsPostings(AccountsPostings accountsPostings)
         {
-            // ✅ CORREÇÃO 4: Verifica se é transferência usando método auxiliar
+            // Verifica se é transferência usando método auxiliar
             if (IsTransfer(accountsPostings))
             {
                 return await DeleteTransferBetweenAccounts(accountsPostings.Id);
@@ -395,7 +408,6 @@ namespace BudgetAPI.Services
                 _context.AccountsPostings.Add(originPosting);
                 _context.AccountsPostings.Add(destinationPosting);
 
-                // ✅ CORREÇÃO 5: SaveChanges único com RelatedId já definido (reduz race condition)
                 // Aguarda geração dos IDs
                 await _context.SaveChangesAsync();
 
