@@ -16,11 +16,23 @@ namespace BudgetAPI.Authorization
 
 	public class JwtUtils : IJwtUtils
 	{
-		private readonly AppSettings _appSettings;
+		private readonly IConfiguration _configuration;
 
-		public JwtUtils(IOptions<AppSettings> appSettings)
+		public JwtUtils(IConfiguration configuration)
 		{
-			_appSettings = appSettings.Value;
+			_configuration = configuration;
+		}
+
+		private string GetSecret()
+		{
+			string? secret = _configuration["BUDGETAPI_SECRET"];
+			
+			if (string.IsNullOrEmpty(secret))
+			{
+				throw new InvalidOperationException("JWT Secret não está configurado. Configure a chave 'BUDGETAPI_SECRET' em secrets.json");
+			}
+
+			return secret;
 		}
 
 		public string GenerateToken(Users user)
@@ -28,7 +40,7 @@ namespace BudgetAPI.Authorization
 			// generate token that is valid for 7 days
 			var tokenHandler = new JwtSecurityTokenHandler();
 
-			byte[]? key = Encoding.ASCII.GetBytes(_appSettings.Secret);
+			byte[] key = Encoding.ASCII.GetBytes(GetSecret());
 
 			var tokenDescriptor = new SecurityTokenDescriptor
 			{
@@ -49,7 +61,7 @@ namespace BudgetAPI.Authorization
 
 			var tokenHandler = new JwtSecurityTokenHandler();
 
-			byte[]? key = Encoding.ASCII.GetBytes(_appSettings.Secret);
+			byte[] key = Encoding.ASCII.GetBytes(GetSecret());
 
 			try
 			{

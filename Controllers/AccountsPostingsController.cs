@@ -103,11 +103,17 @@ namespace BudgetAPI.Controllers
                     return NotFound();
                 }
 
-                return Problem(dex.Message);
+                return Problem(
+                    detail: GetDetailedErrorMessage(dex),
+                    title: "Erro de concorrência ao atualizar lançamento"
+                );
             }
             catch (Exception ex)
             {
-                return Problem(ex.Message);
+                return Problem(
+                    detail: GetDetailedErrorMessage(ex),
+                    title: "Erro ao atualizar lançamento"
+                );
             }
 
             return Ok();
@@ -138,7 +144,10 @@ namespace BudgetAPI.Controllers
             }
             catch (Exception ex)
             {
-                return Problem(ex.Message);
+                return Problem(
+                    detail: GetDetailedErrorMessage(ex),
+                    title: "Erro ao criar lançamento"
+                );
             }
         }
 
@@ -165,7 +174,10 @@ namespace BudgetAPI.Controllers
             }
             catch (Exception ex)
             {
-                return Problem(ex.Message);
+                return Problem(
+                    detail: GetDetailedErrorMessage(ex),
+                    title: "Erro ao excluir lançamento"
+                );
             }
         }
 
@@ -196,6 +208,26 @@ namespace BudgetAPI.Controllers
         {
             var lista = await _accountPostingService.GetAccountsYields(reference, accountId).ToListAsync();
             return Ok(lista);
+        }
+
+        private string GetDetailedErrorMessage(Exception ex)
+        {
+            var errorDetails = $"Mensagem: {ex.Message}";
+            
+            if (ex.InnerException != null)
+            {
+                errorDetails += $"\n\nInner Exception: {ex.InnerException.Message}";
+                
+                if (ex.InnerException.InnerException != null)
+                {
+                    errorDetails += $"\n\nInner Exception (2): {ex.InnerException.InnerException.Message}";
+                }
+            }
+            
+            errorDetails += $"\n\nTipo: {ex.GetType().FullName}";
+            errorDetails += $"\n\nStack Trace:\n{ex.StackTrace}";
+            
+            return errorDetails;
         }
     }
 }

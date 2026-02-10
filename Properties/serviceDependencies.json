@@ -1,8 +1,5 @@
 {
   "dependencies": {
-    "secrets1": {
-      "type": "secrets"
-    },
     "mssql2": {
       "type": "mssql",
       "connectionId": "ConnectionStrings:LocalConnection"
@@ -17,6 +14,10 @@
     },
     "apis2": {
       "type": "apis"
+    },
+    "secrets1": {
+      "type": "secrets",
+      "connectionId": null
     }
   }
 }
