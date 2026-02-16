@@ -274,6 +274,33 @@ namespace BudgetAPI.Controllers
             }
         }
 
+        [HttpPost("RepeatFixedExpenses")]
+        public async Task<ActionResult> RepeatFixedExpenses([FromQuery] string reference)
+        {
+            try
+            {
+                int createdCount = await _expenseService.RepeatFixedExpenses(reference);
+
+                return Ok(new
+                {
+                    message = $"{createdCount} despesa(s) fixa(s) copiada(s) para {reference}",
+                    count = createdCount,
+                    reference
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                return Problem(
+                    detail: $"{ex.Message}\n\n{ex.InnerException?.Message}",
+                    title: "Erro ao repetir despesas fixas"
+                );
+            }
+        }
+
         [HttpGet("Notify")]
         public async Task<ActionResult<List<Expenses>>> GetUpcomingOrOverdueExpenses(int daysAhead = 1)
         {

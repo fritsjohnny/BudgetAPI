@@ -28,7 +28,7 @@ namespace BudgetAPI.Services
         Task OrderByPreviousMonth(string reference);
         Task<List<Expenses>> GetUpcomingOrOverdueExpenses(int daysAhead = 1);
         Task<ExpensesDTO?> AjustarValorComBaseNaCategoria(int expenseId);
-
+        Task<int> RepeatFixedExpenses(string reference);
         IQueryable<ExpensesDueDateReportDTO> GetExpensesByDueDateRange(DateTime initialDate, DateTime finalDate);
     }
 
@@ -310,6 +310,18 @@ namespace BudgetAPI.Services
             return newReference;
         }
 
+        private static string GetPreviousReference(string reference)
+        {
+            var year  = int.Parse(reference.Substring(0, 4));
+            var month = int.Parse(reference.Substring(4, 2));
+
+            var date = new DateTime(year, month, 1).AddMonths(-1);
+
+            var previousReference = date.ToString("yyyyMM");
+
+            return previousReference;
+        }
+
         private short GetNewPosition(string reference)
         {
             var newPosition = _context.Expenses.Where(e => e.Reference == reference).Max(e => e.Position) ?? 0;
@@ -334,23 +346,25 @@ namespace BudgetAPI.Services
 
                 var e = new Expenses
                 {
-                    UserId       = expense.UserId,
-                    Reference    = reference,
-                    Position     = expense.Id > 0 && i == expense.ParcelNumber ? expense.Position : GetNewPosition(reference),
-                    Description  = expense.Description,
-                    ToPay        = toPay,
-                    Paid         = expense.Paid,
-                    Note         = expense.Note,
-                    CardId       = expense.CardId,
-                    AccountId    = expense.AccountId,
-                    DueDate      = dueDate,
-                    ParcelNumber = i,
-                    Parcels      = expense.Parcels,
-                    TotalToPay   = expense.TotalToPay,
-                    CategoryId   = expense.CategoryId,
-                    Scheduled    = expense.Scheduled,
-                    PeopleId     = expense.PeopleId,
-                    DueDay       = expense.DueDay,
+                    UserId        = expense.UserId,
+                    Reference     = reference,
+                    Position      = expense.Id > 0 && i == expense.ParcelNumber ? expense.Position : GetNewPosition(reference),
+                    Description   = expense.Description,
+                    ToPay         = toPay,
+                    Paid          = expense.Paid,
+                    Note          = expense.Note,
+                    CardId        = expense.CardId,
+                    AccountId     = expense.AccountId,
+                    DueDate       = dueDate,
+                    ParcelNumber  = i,
+                    Parcels       = expense.Parcels,
+                    TotalToPay    = expense.TotalToPay,
+                    CategoryId    = expense.CategoryId,
+                    Scheduled     = expense.Scheduled,
+                    PeopleId      = expense.PeopleId,
+                    DueDay        = expense.DueDay,
+                    ExpectedValue = expense.ExpectedValue,
+                    Fixed         = expense.Fixed
                 };
 
                 // Add the difference to the first parcel
@@ -389,23 +403,25 @@ namespace BudgetAPI.Services
                 {
                     var e = new Expenses
                     {
-                        UserId       = expense.UserId,
-                        Reference    = reference,
-                        Position     = expense.Id > 0 && i == expense.ParcelNumber ? expense.Position : GetNewPosition(reference),
-                        Description  = expense.Description,
-                        ToPay        = expense.ToPay,
-                        Paid         = expense.Paid,
-                        Note         = expense.Note,
-                        CardId       = expense.CardId,
-                        AccountId    = expense.AccountId,
-                        DueDate      = dueDate,
-                        ParcelNumber = expense.ParcelNumber,
-                        Parcels      = expense.Parcels,
-                        TotalToPay   = expense.TotalToPay,
-                        CategoryId   = expense.CategoryId,
-                        Scheduled    = expense.Scheduled,
-                        PeopleId     = expense.PeopleId,
-                        DueDay       = expense.DueDay,
+                        UserId        = expense.UserId,
+                        Reference     = reference,
+                        Position      = expense.Id > 0 && i == expense.ParcelNumber ? expense.Position : GetNewPosition(reference),
+                        Description   = expense.Description,
+                        ToPay         = expense.ToPay,
+                        Paid          = expense.Paid,
+                        Note          = expense.Note,
+                        CardId        = expense.CardId,
+                        AccountId     = expense.AccountId,
+                        DueDate       = dueDate,
+                        ParcelNumber  = expense.ParcelNumber,
+                        Parcels       = expense.Parcels,
+                        TotalToPay    = expense.TotalToPay,
+                        CategoryId    = expense.CategoryId,
+                        Scheduled     = expense.Scheduled,
+                        PeopleId      = expense.PeopleId,
+                        DueDay        = expense.DueDay,
+                        ExpectedValue = expense.ExpectedValue,
+                        Fixed         = expense.Fixed
                     };
 
                     expensesList.Add(e);
@@ -546,6 +562,96 @@ namespace BudgetAPI.Services
             await _context.SaveChangesAsync();
 
             return ExpensesToDTO(expense);
+        }
+
+        public async Task<int> RepeatFixedExpenses(string reference)
+        {
+            if (string.IsNullOrWhiteSpace(reference) || reference.Length != 6)
+            {
+                throw new ArgumentException("Referência inválida. O formato esperado é 'yyyyMM'.");
+            }
+
+            // Obter a referência do mês anterior
+            string previousReference = GetPreviousReference(reference);
+
+            // Buscar despesas fixas do mês anterior
+            List<Expenses> fixedExpenses = await _context.Expenses
+                                                         .Where(e => e.UserId == _user.Id &&
+                                                                     e.Reference == previousReference &&
+                                                                     e.Fixed == true &&
+                                                                     e.CardId == null)
+                                                         .OrderBy(e => e.Position)
+                                                         .ToListAsync();
+
+            if (!fixedExpenses.Any())
+            {
+                return 0; // Nenhuma despesa fixa encontrada
+            }
+
+            int createdCount = 0;
+
+            foreach (Expenses fixedExpense in fixedExpenses)
+            {
+                // Verifica se já existe uma despesa com a mesma descrição na referência de destino
+                bool alreadyExists = await _context.Expenses.AnyAsync(e => e.UserId == _user.Id &&
+                                                                           e.Reference == reference &&
+                                                                           e.Description == fixedExpense.Description &&
+                                                                           e.CategoryId == fixedExpense.CategoryId);
+
+                if (!alreadyExists)
+                {
+                    // Calcular nova data de vencimento
+                    DateTime? newDueDate = null;
+                    if (fixedExpense.DueDay.HasValue)
+                    {
+                        // Se tem DueDay definido, usar esse dia no novo mês
+                        DateTime referenceDate = DateTime.ParseExact(reference, "yyyyMM", null);
+                        int maxDay = DateTime.DaysInMonth(referenceDate.Year, referenceDate.Month);
+                        int dueDay = Math.Min(fixedExpense.DueDay.Value, maxDay);
+                        newDueDate = new DateTime(referenceDate.Year, referenceDate.Month, dueDay);
+                    }
+                    else if (fixedExpense.DueDate.HasValue)
+                    {
+                        // Se não tem DueDay mas tem DueDate, adicionar 1 mês
+                        newDueDate = fixedExpense.DueDate.Value.AddMonths(1);
+                    }
+
+                    // Criar nova despesa
+                    var newExpense = new Expenses
+                    {
+                        UserId        = _user.Id,
+                        Reference     = reference,
+                        Position      = GetNewPosition(reference),
+                        Description   = fixedExpense.Description,
+                        ToPay         = fixedExpense.ToPay,
+                        Paid          = 0, // Despesa nova começa com valor pago zerado
+                        Note          = fixedExpense.Note,
+                        CardId        = fixedExpense.CardId,
+                        AccountId     = fixedExpense.AccountId,
+                        DueDate       = newDueDate,
+                        ParcelNumber  = null,
+                        Parcels       = null,
+                        TotalToPay    = fixedExpense.TotalToPay,
+                        CategoryId    = fixedExpense.CategoryId,
+                        Scheduled     = fixedExpense.Scheduled,
+                        PeopleId      = fixedExpense.PeopleId,
+                        DueDay        = fixedExpense.DueDay,
+                        ExpectedValue = fixedExpense.ExpectedValue,
+                        Fixed         = true,
+                        RelatedId     = null
+                    };
+
+                    _context.Expenses.Add(newExpense);
+                    createdCount++;
+                }
+            }
+
+            if (createdCount > 0)
+            {
+                await _context.SaveChangesAsync();
+            }
+
+            return createdCount;
         }
     }
 }
