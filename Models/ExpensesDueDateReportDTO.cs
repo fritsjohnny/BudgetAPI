@@ -12,5 +12,6 @@
         public int? CategoryId { get; set; }
         public string? CategoryName { get; set; }
         public int? PeopleId { get; set; }
+        public int? CardId { get; set; }
     }
 }

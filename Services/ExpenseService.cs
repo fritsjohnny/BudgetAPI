@@ -110,7 +110,7 @@ namespace BudgetAPI.Services
             IQueryable<ExpensesDueDateReportDTO> expenses = _context.Expenses
                                                                      .Include(e => e.Category)
                                                                      .Where(e => e.UserId == _user.Id &&
-                                                                                 e.CardId == null &&
+                                                                                 //e.CardId == null &&
                                                                                  e.DueDate != null &&
                                                                                  e.DueDate >= start &&
                                                                                  e.DueDate <= end &&
@@ -129,6 +129,7 @@ namespace BudgetAPI.Services
                                                                          CategoryId   = e.CategoryId,
                                                                          CategoryName = e.Category != null ? e.Category.Name : null,
                                                                          PeopleId     = e.PeopleId,
+                                                                         CardId       = e.CardId
                                                                      });
 
             return expenses;
