@@ -229,5 +229,13 @@ namespace BudgetAPI.Controllers
             
             return errorDetails;
         }
+
+        [HttpPost("GenerateCardReceipt")]
+        public async Task<ActionResult<int>> GenerateCardReceiptFromAccountPosting([FromQuery] int accountPostingId, [FromQuery] int cardId, [FromQuery] int peopleId)
+        {
+            int id = await _accountPostingService.GenerateCardReceiptFromAccountPosting(accountPostingId, cardId, peopleId);
+           
+            return Ok(id);
+        }
     }
 }

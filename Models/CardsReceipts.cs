@@ -3,9 +3,9 @@
 	public class CardsReceipts
 	{
 		public int Id { get; set; }
-		public DateTime Date { get; set; }
-		public string Reference { get; set; }
-		public int CardId { get; set; }
+		public required DateTime Date { get; set; }
+		public required string Reference { get; set; }
+		public required int CardId { get; set; }
 		public int? PeopleId { get; set; }
 		public int AccountId { get; set; }
 		public decimal Amount { get; set; }

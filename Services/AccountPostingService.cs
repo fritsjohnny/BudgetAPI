@@ -18,6 +18,7 @@ namespace BudgetAPI.Services
         bool ValidateAccountAndUser(int accountId);
         IQueryable<AccountsYieldsDTO> GetAccountsYields(string? reference, int? accountId);
         Task<int> TransferBetweenAccounts(AccountsPostings accountPosting);
+        Task<int> GenerateCardReceiptFromAccountPosting(int accountPostingId, int cardId, int peopleId);
     }
 
     public class AccountPostingService : IAccountPostingService
@@ -61,7 +62,7 @@ namespace BudgetAPI.Services
             // Uma transferência pode ser identificada por:
             // 1. Type="T" → Request do frontend para criar/editar transferência
             // 2. Type="P" ou "R" COM RelatedId → Lançamento de transferência já persistido no banco
-            return posting.Type == "T" || 
+            return posting.Type == "T" ||
                    (posting.RelatedId.HasValue && (posting.Type == "P" || posting.Type == "R"));
         }
 
@@ -80,7 +81,13 @@ namespace BudgetAPI.Services
                 return UpdateTransferBetweenAccounts(accountsPostings);
             }
 
-            _context.Entry(accountsPostings).State = EntityState.Modified;
+            AccountsPostings? entity = _context.AccountsPostings.Find(accountsPostings.Id);
+
+            if (entity == null)
+                throw new Exception("Lançamento não encontrado.");
+
+            _context.Entry(entity).CurrentValues.SetValues(accountsPostings);
+
             return _context.SaveChangesAsync();
         }
 
@@ -447,6 +454,70 @@ namespace BudgetAPI.Services
             catch { /**/ }
 
             return accountsYields.OrderByDescending(y => y.RowNum);
+        }
+
+        public async Task<int> GenerateCardReceiptFromAccountPosting(int accountPostingId, int cardId, int peopleId)
+        {
+            if (accountPostingId == 0) throw new ArgumentNullException("Dados do lançamento não informados.");
+
+            AccountsPostings? posting = await _context.AccountsPostings.FirstOrDefaultAsync(x => x.Id == accountPostingId);
+
+            if (posting == null)
+                throw new ArgumentException("Lançamento não encontrado no banco.");
+
+            if (posting.CardReceiptId.HasValue)
+                return posting.CardReceiptId.Value;
+
+            if (posting.Type != "R") throw new ArgumentException("Apenas lançamentos do tipo 'R' podem gerar um comprovante de cartão.");
+
+            int? existingId = await _context.CardsReceipts.AsNoTracking()
+                                                  .Where(x => x.Reference == posting.Reference
+                                                           && x.CardId == cardId
+                                                           && x.PeopleId == peopleId
+                                                           && x.AccountId == posting.AccountId
+                                                           && x.Amount == posting.Amount)
+                                                  .Select(x => (int?)x.Id)
+                                                  .FirstOrDefaultAsync();
+
+            if (existingId.HasValue)
+            {
+                throw new InvalidOperationException($"Já existe um recebimento de cartão correspondente a este lançamento (ID do comprovante: {existingId.Value}).");
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+
+                CardsReceipts cardReceipt = new CardsReceipts
+                {
+                    Date      = posting.Date,
+                    Reference = posting.Reference,
+                    CardId    = cardId,
+                    PeopleId  = peopleId,
+                    AccountId = posting.AccountId,
+                    Amount    = posting.Amount,
+                    Note      = $"Gerado a partir do lançamento ID {posting.Id}"
+                };
+
+                _context.CardsReceipts.Add(cardReceipt);
+
+                await _context.SaveChangesAsync(); // gera o Id
+
+                posting.CardReceiptId = cardReceipt.Id;
+
+                await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+
+                return cardReceipt.Id;
+            }
+
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
         }
     }
 }
