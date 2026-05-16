@@ -237,5 +237,21 @@ namespace BudgetAPI.Controllers
            
             return Ok(id);
         }
+
+        [HttpGet("previousyield/{accountId:int}/{reference}")]
+        public async Task<ActionResult<decimal>> GetPreviousYield(int accountId, string reference)
+        {
+            decimal previousYield = await _accountPostingService.GetPreviousYield(accountId, reference);
+
+            return Ok(previousYield);
+        }
+
+        [HttpGet("totalpreviousyields/{accountId:int}/{reference}")]
+        public async Task<ActionResult<decimal>> GetTotalPreviousYields(int accountId, string reference)
+        {
+            decimal totalPreviousYields = await _accountPostingService.GetTotalPreviousYields(accountId, reference);
+
+            return Ok(totalPreviousYields);
+        }
     }
 }

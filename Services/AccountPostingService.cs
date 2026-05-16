@@ -19,6 +19,8 @@ namespace BudgetAPI.Services
         IQueryable<AccountsYieldsDTO> GetAccountsYields(string? reference, int? accountId);
         Task<int> TransferBetweenAccounts(AccountsPostings accountPosting);
         Task<int> GenerateCardReceiptFromAccountPosting(int accountPostingId, int cardId, int peopleId);
+        Task<decimal> GetPreviousYield(int accountId, string reference);
+        Task<decimal> GetTotalPreviousYields(int accountId, string reference);
     }
 
     public class AccountPostingService : IAccountPostingService
@@ -518,6 +520,52 @@ namespace BudgetAPI.Services
                 await transaction.RollbackAsync();
                 throw;
             }
+        }
+
+        public async Task<decimal> GetPreviousYield(int accountId, string reference)
+        {
+            decimal previousYield = await _context.AccountsPostings
+                .Where(a => a.AccountId == accountId
+                         && a.Account!.UserId == _user.Id
+                         && (a.Type == "Y" || a.Type == "y")
+                         && a.Reference.CompareTo(reference) <= 0)
+                .OrderByDescending(a => a.Reference)
+                .ThenByDescending(a => a.Date)
+                .ThenByDescending(a => a.Id)
+                .Select(a => a.Amount)
+                .FirstOrDefaultAsync();
+
+            return previousYield;
+        }
+
+        public async Task<decimal> GetTotalPreviousYields(int accountId, string reference)
+        {
+            DateTime? dateApplied = await (
+                                            from aa in _context.AccountsApplications
+                                            join a in _context.Accounts on aa.AccountId equals a.Id
+                                            where aa.AccountId == accountId
+                                               && a.UserId == _user.Id
+                                            orderby aa.DateApplied descending, aa.Id descending
+                                            select (DateTime?)aa.DateApplied
+                                        ).FirstOrDefaultAsync();
+
+            if (!dateApplied.HasValue)
+            {
+                return 0;
+            }
+
+            decimal totalPreviousYields = await (
+                                                from ap in _context.AccountsPostings
+                                                join a in _context.Accounts on ap.AccountId equals a.Id
+                                                where ap.AccountId == accountId
+                                                   && a.UserId == _user.Id
+                                                   && (ap.Type == "Y" || ap.Type == "y")
+                                                   && ap.Date >= dateApplied.Value
+                                                   && ap.Reference.CompareTo(reference) <= 0
+                                                select ap.Amount
+                                                ).SumAsync();
+
+            return totalPreviousYields;
         }
     }
 }
