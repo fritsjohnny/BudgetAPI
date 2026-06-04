@@ -93,6 +93,26 @@ namespace BudgetAPI.Controllers
             return Ok();
         }
 
+        [HttpPut("AllParcels/{id}")]
+        public async Task<ActionResult<Incomes>> PutIncomesAllParcels(int id, Incomes income)
+        {
+            try
+            {
+                if (id != income.Id || !_incomeService.ValidarUsuario(id))
+                {
+                    return BadRequest();
+                }
+
+                await _incomeService.PutIncomesAllParcels(income);
+
+                return Ok();
+            }
+            catch (Exception ex)
+            {
+                return Problem(ex.Message);
+            }
+        }
+
         [HttpPut("Repeat/{id}")]
         public async Task<ActionResult<Incomes>> PutIncomesWithParcels(int id, Incomes income, int qtyMonths)
         {
@@ -147,6 +167,21 @@ namespace BudgetAPI.Controllers
             try
             {
                 await _incomeService.PostIncomes(income);
+
+                return await GetIncomesDTO(income.Id);
+            }
+            catch (Exception ex)
+            {
+                return Problem(ex.ToString() + "\n\n" + ex.InnerException?.Message);
+            }
+        }
+
+        [HttpPost("AllParcels")]
+        public async Task<ActionResult<IncomesDTO>> PostIncomesAllParcels(Incomes income)
+        {
+            try
+            {
+                await _incomeService.PostIncomesAllParcels(income);
 
                 return await GetIncomesDTO(income.Id);
             }

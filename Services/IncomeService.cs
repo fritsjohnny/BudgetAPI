@@ -13,10 +13,12 @@ namespace BudgetAPI.Services
         IQueryable<IncomesDTO> GetMyIncomes(string reference);
         IQueryable<IncomesDTO2> GetIncomesComboList(string reference);
         Task<int> PutIncomes(Incomes incomes, bool repeatToNextMonths = false);
+        Task PutIncomesAllParcels(Incomes incomes);
         void PutIncomesWithParcels(Incomes incomes, int qtyMonths);
         Task<int> SetPositions(List<Incomes> incomes);
         Task<int> AddValue(Incomes income, decimal value);
         Task<int> PostIncomes(Incomes income);
+        Task PostIncomesAllParcels(Incomes incomes);
         void PostIncomesWithParcels(Incomes incomes, int qtyMonths);
         Task<int> DeleteIncomes(Incomes income);
         bool IncomesExists(int id);
@@ -107,6 +109,11 @@ namespace BudgetAPI.Services
 
                 income.UserId = _user.Id;
 
+                if (income.TotalToReceive == 0)
+                {
+                    income.TotalToReceive = income.ToReceive;
+                }
+
                 _context.Entry(income).State = EntityState.Modified;
 
                 if (repeatToNextMonths)
@@ -122,13 +129,16 @@ namespace BudgetAPI.Services
 
                     foreach (Incomes item in futureIncomes)
                     {
-                        item.Description = income.Description;
-                        item.ToReceive   = income.ToReceive;
-                        item.Note        = income.Note;
-                        item.CardId      = income.CardId;
-                        item.AccountId   = income.AccountId;
-                        item.Type        = income.Type;
-                        item.PeopleId    = income.PeopleId;
+                        item.Description    = income.Description;
+                        item.ToReceive      = income.ToReceive;
+                        item.ParcelNumber   = income.ParcelNumber;
+                        item.Parcels        = income.Parcels;
+                        item.TotalToReceive = income.TotalToReceive;
+                        item.Note           = income.Note;
+                        item.CardId         = income.CardId;
+                        item.AccountId      = income.AccountId;
+                        item.Type           = income.Type;
+                        item.PeopleId       = income.PeopleId;
 
                         _context.Entry(item).State = EntityState.Modified;
                     }
@@ -139,6 +149,81 @@ namespace BudgetAPI.Services
                 await transaction.CommitAsync();
 
                 return result;
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        public async Task PutIncomesAllParcels(Incomes income)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                income.UserId = _user.Id;
+
+                if (income.ParcelNumber == null || income.ParcelNumber <= 0)
+                {
+                    income.ParcelNumber = 1;
+                }
+
+                if (income.Parcels == null || income.Parcels <= 0)
+                {
+                    income.Parcels = 1;
+                }
+
+                if (income.TotalToReceive == 0)
+                {
+                    income.TotalToReceive = income.ToReceive;
+                }
+
+                _context.Entry(income).State = EntityState.Modified;
+
+                List<Incomes> incomesList = GenerateIncomes(income);
+
+                int relatedId = income.RelatedId ?? income.Id;
+
+                List<Incomes> futureIncomesToRemove = _context.Incomes.Where(i =>
+                                                        i.UserId == _user.Id &&
+                                                        i.Id != income.Id &&
+                                                        (i.RelatedId == relatedId || i.Id == relatedId) &&
+                                                        i.ParcelNumber > income.ParcelNumber &&
+                                                        i.Received == 0)
+                                                   .ToList();
+
+                if (futureIncomesToRemove.Any())
+                {
+                    _context.Incomes.RemoveRange(futureIncomesToRemove);
+
+                    await _context.SaveChangesAsync();
+                }
+
+                foreach (Incomes item in incomesList.Where(i => i.ParcelNumber > income.ParcelNumber))
+                {
+                    bool alreadyExists = _context.Incomes.Any(i =>
+                                         i.UserId == _user.Id &&
+                                         i.Id != income.Id &&
+                                         (i.RelatedId == relatedId || i.Id == relatedId) &&
+                                         i.ParcelNumber == item.ParcelNumber &&
+                                         i.Parcels == item.Parcels);
+
+                    if (alreadyExists)
+                    {
+                        continue;
+                    }
+
+                    item.UserId    = _user.Id;
+                    item.RelatedId = relatedId;
+
+                    _context.Incomes.Add(item);
+                }
+
+                await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
             }
             catch
             {
@@ -175,6 +260,15 @@ namespace BudgetAPI.Services
         {
             income.ToReceive += value;
 
+            if (income.TotalToReceive == 0)
+            {
+                income.TotalToReceive = income.ToReceive;
+            }
+            else
+            {
+                income.TotalToReceive += value;
+            }
+
             _context.Entry(income).State = EntityState.Modified;
 
             return _context.SaveChangesAsync();
@@ -184,9 +278,73 @@ namespace BudgetAPI.Services
         {
             income.UserId = _user.Id;
 
+            if (income.TotalToReceive == 0)
+            {
+                income.TotalToReceive = income.ToReceive;
+            }
+
             _context.Incomes.Add(income);
 
             return _context.SaveChangesAsync();
+        }
+
+        public async Task PostIncomesAllParcels(Incomes income)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                income.UserId = _user.Id;
+
+                if (income.ParcelNumber == null || income.ParcelNumber <= 0)
+                {
+                    income.ParcelNumber = 1;
+                }
+
+                if (income.Parcels == null || income.Parcels <= 0)
+                {
+                    income.Parcels = 1;
+                }
+
+                if (income.TotalToReceive == 0)
+                {
+                    income.TotalToReceive = income.ToReceive;
+                }
+
+                List<Incomes> incomesList = GenerateIncomes(income);
+
+                Incomes? firstIncome = null;
+
+                foreach (Incomes item in incomesList)
+                {
+                    item.UserId = _user.Id;
+
+                    if (firstIncome != null)
+                    {
+                        item.RelatedId = firstIncome.Id;
+                    }
+
+                    _context.Incomes.Add(item);
+
+                    await _context.SaveChangesAsync();
+
+                    if (firstIncome == null)
+                    {
+                        firstIncome = item;
+
+                        income.Id             = firstIncome.Id;
+                        income.ToReceive      = firstIncome.ToReceive;
+                        income.TotalToReceive = firstIncome.TotalToReceive;
+                    }
+                }
+
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
         }
 
         public void PostIncomesWithParcels(Incomes incomes, int qtyMonths)
@@ -220,7 +378,24 @@ namespace BudgetAPI.Services
 
         public Task<int> DeleteIncomes(Incomes income)
         {
-            _context.Incomes.Remove(income);
+            int relatedId = income.RelatedId ?? income.Id;
+
+            List<Incomes> incomesToRemove = _context.Incomes.Where(i =>
+                                                      i.UserId == _user.Id &&
+                                                      (
+                                                          i.Id == income.Id ||
+                                                          (
+                                                              (i.RelatedId == relatedId || i.Id == relatedId) &&
+                                                              string.Compare(i.Reference, income.Reference) > 0 &&
+                                                              i.Received == 0
+                                                          )
+                                                      ))
+                                                 .ToList();
+
+            if (incomesToRemove.Any())
+            {
+                _context.Incomes.RemoveRange(incomesToRemove);
+            }
 
             return _context.SaveChangesAsync();
         }
@@ -233,6 +408,79 @@ namespace BudgetAPI.Services
         public bool ValidarUsuario(int incomeId)
         {
             return GetIncomes(incomeId).Any();
+        }
+
+        private static bool HasNextParcel(Incomes income)
+        {
+            return income.ParcelNumber.HasValue &&
+                   income.Parcels.HasValue &&
+                   income.Parcels.Value > 1 &&
+                   income.ParcelNumber.Value < income.Parcels.Value;
+        }
+
+        private static bool IsParceledIncome(Incomes income)
+        {
+            return income.ParcelNumber.HasValue &&
+                   income.Parcels.HasValue &&
+                   income.Parcels.Value > 1;
+        }
+
+        private static decimal GetParcelAmount(decimal totalToReceive, int parcels, int parcelNumber)
+        {
+            decimal toReceive  = Math.Round(totalToReceive / parcels, 2, MidpointRounding.AwayFromZero);
+            decimal difference = totalToReceive - (toReceive * parcels);
+
+            return parcelNumber == 1 ? toReceive + difference : toReceive;
+        }
+
+        private static bool IsSameIncomeFromPreviousMonth(Incomes currentIncome, Incomes previousIncome)
+        {
+            if (!string.Equals(currentIncome.Description?.Trim(), previousIncome.Description?.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (IsParceledIncome(previousIncome))
+            {
+                if (!HasNextParcel(previousIncome))
+                {
+                    return false;
+                }
+
+                return currentIncome.Parcels == previousIncome.Parcels &&
+                       currentIncome.ParcelNumber == previousIncome.ParcelNumber + 1;
+            }
+
+            return !IsParceledIncome(currentIncome);
+        }
+
+        private Incomes CreateNextParcelFromPreviousMonth(Incomes previousIncome, string reference, short? position)
+        {
+            int nextParcelNumber = previousIncome.ParcelNumber!.Value + 1;
+            int parcels          = previousIncome.Parcels!.Value;
+
+            decimal totalToReceive = previousIncome.TotalToReceive == 0 ?
+                             previousIncome.ToReceive * parcels :
+                             previousIncome.TotalToReceive;
+
+            return new Incomes
+            {
+                UserId         = _user.Id,
+                Reference      = reference,
+                Position       = position,
+                Description    = previousIncome.Description,
+                ToReceive      = GetParcelAmount(totalToReceive, parcels, nextParcelNumber),
+                Received       = 0,
+                ParcelNumber   = nextParcelNumber,
+                Parcels        = parcels,
+                TotalToReceive = totalToReceive,
+                Note           = previousIncome.Note,
+                CardId         = null,
+                AccountId      = previousIncome.AccountId,
+                Type           = previousIncome.Type,
+                PeopleId       = previousIncome.PeopleId,
+                RelatedId      = previousIncome.RelatedId ?? previousIncome.Id
+            };
         }
 
         private static string GetNewReference(string reference)
@@ -249,35 +497,84 @@ namespace BudgetAPI.Services
 
         private short GetNewPosition(string reference)
         {
-            var newPosition = _context.Incomes.Where(e => e.Reference == reference).Max(e => e.Position) ?? 0;
+            var newPosition = _context.Incomes.Where(e => e.Reference == reference && e.UserId == _user.Id).Max(e => e.Position) ?? 0;
 
             return ++newPosition;
         }
 
         private List<Incomes> RepeatIncomes(Incomes income, int qtyMonths)
         {
-            var incomesList = new List<Incomes>();
+            List<Incomes> incomesList = new();
 
-            var reference = income.Reference;
+            string reference = income.Reference;
 
             for (int i = 1; i <= (qtyMonths + 1); i++)
             {
-                var e = new Incomes
+                Incomes item = new()
                 {
-                    UserId       = income.UserId,
-                    Reference    = reference,
-                    Position     = income.Id > 0 && i == 1 ? income.Position : GetNewPosition(reference),
-                    Description  = income.Description,
-                    ToReceive    = income.ToReceive,
-                    Received     = income.Received,
-                    Note         = income.Note,
-                    CardId       = income.CardId,
-                    AccountId    = income.AccountId,
-                    Type         = income.Type,
-                    PeopleId     = income.PeopleId
+                    UserId         = income.UserId,
+                    Reference      = reference,
+                    Position       = income.Id > 0 && i == 1 ? income.Position : GetNewPosition(reference),
+                    Description    = income.Description,
+                    ToReceive      = income.ToReceive,
+                    Received       = i == 1 ? income.Received : 0,
+                    ParcelNumber   = null,
+                    Parcels        = null,
+                    TotalToReceive = income.TotalToReceive == 0 ? income.ToReceive : income.TotalToReceive,
+                    Note           = income.Note,
+                    CardId         = income.CardId,
+                    AccountId      = income.AccountId,
+                    Type           = income.Type,
+                    PeopleId       = income.PeopleId
                 };
 
-                incomesList.Add(e);
+                incomesList.Add(item);
+
+                reference = GetNewReference(reference);
+            }
+
+            return incomesList;
+        }
+
+        private List<Incomes> GenerateIncomes(Incomes income)
+        {
+            List<Incomes> incomesList = new();
+
+            string reference    = income.Reference;
+            int parcelNumber    = income.ParcelNumber ?? 1;
+            int parcels         = income.Parcels ?? 1;
+            decimal totalAmount = income.TotalToReceive == 0 ? income.ToReceive : income.TotalToReceive;
+            decimal toReceive   = Math.Round(totalAmount / parcels, 2, MidpointRounding.AwayFromZero);
+            decimal difference  = totalAmount - (toReceive * parcels);
+
+            for (int i = parcelNumber; i <= parcels; i++)
+            {
+                decimal currentToReceive = toReceive;
+
+                if (i == 1 && difference != 0)
+                {
+                    currentToReceive += difference;
+                }
+
+                Incomes item = new()
+                {
+                    UserId         = income.UserId,
+                    Reference      = reference,
+                    Position       = income.Id > 0 && i == parcelNumber ? income.Position : GetNewPosition(reference),
+                    Description    = income.Description,
+                    ToReceive      = currentToReceive,
+                    Received       = i == parcelNumber ? income.Received : 0,
+                    ParcelNumber   = i,
+                    Parcels        = parcels,
+                    TotalToReceive = totalAmount,
+                    Note           = income.Note,
+                    CardId         = income.CardId,
+                    AccountId      = income.AccountId,
+                    Type           = income.Type,
+                    PeopleId       = income.PeopleId
+                };
+
+                incomesList.Add(item);
 
                 reference = GetNewReference(reference);
             }
@@ -286,23 +583,26 @@ namespace BudgetAPI.Services
         }
 
         private static IncomesDTO IncomesToDTO(Incomes income) =>
-            new IncomesDTO
-            {
-                Id          = income.Id,
-                UserId      = income.UserId,
-                Reference   = income.Reference,
-                Position    = income.Position,
-                Description = income.Description,
-                ToReceive   = income.ToReceive,
-                Received    = income.Received,
-                Remaining   = income.ToReceive - income.Received,
-                Note        = income.Note,
-                CardId      = income.CardId,
-                AccountId   = income.AccountId,
-                Type        = income.Type,
-                PeopleId    = income.PeopleId,
-                RelatedId   = income.RelatedId
-            };
+        new IncomesDTO
+        {
+            Id             = income.Id,
+            UserId         = income.UserId,
+            Reference      = income.Reference,
+            Position       = income.Position,
+            Description    = income.Description,
+            ToReceive      = income.ToReceive,
+            Received       = income.Received,
+            Remaining      = income.ToReceive - income.Received,
+            ParcelNumber   = income.ParcelNumber,
+            Parcels        = income.Parcels,
+            TotalToReceive = income.TotalToReceive,
+            Note           = income.Note,
+            CardId         = income.CardId,
+            AccountId      = income.AccountId,
+            Type           = income.Type,
+            PeopleId       = income.PeopleId,
+            RelatedId      = income.RelatedId
+        };
 
         private static IncomesDTO2 IncomesToComboList(Incomes income) =>
         new()
@@ -315,7 +615,9 @@ namespace BudgetAPI.Services
         public async Task OrderByPreviousMonth(string reference)
         {
             if (string.IsNullOrWhiteSpace(reference) || reference.Length != 6)
+            {
                 throw new ArgumentException("Referência inválida. O formato esperado é 'yyyyMM'.");
+            }
 
             string previousReference = DateTime.ParseExact(reference, "yyyyMM", null).AddMonths(-1).ToString("yyyyMM");
 
@@ -324,29 +626,54 @@ namespace BudgetAPI.Services
                                                           .ToListAsync();
 
             if (!previousIncomes.Any())
+            {
                 throw new InvalidOperationException("Nenhuma receita encontrada para o mês anterior.");
+            }
 
             List<Incomes> currentIncomes = await _context.Incomes.Where(e => e.UserId == _user.Id && e.Reference == reference)
                                                          .ToListAsync();
 
-            // aplica posições do mês anterior pelo Description
-            foreach (Incomes prev in previousIncomes)
+            foreach (Incomes previousIncome in previousIncomes.Where(i => i.CardId == null && i.Description != "Tarifa" && HasNextParcel(i)))
             {
-                Incomes? income = currentIncomes.FirstOrDefault(e => e.Description == prev.Description);
-                
-                if (income != null)
-                    income.Position = prev.Position;
+                int nextParcelNumber = previousIncome.ParcelNumber!.Value + 1;
+
+                bool alreadyExists = currentIncomes.Any(i =>
+                                           i.UserId == _user.Id &&
+                                           i.Reference == reference &&
+                                           i.Description == previousIncome.Description &&
+                                           i.ParcelNumber == nextParcelNumber &&
+                                           i.Parcels == previousIncome.Parcels);
+
+                if (!alreadyExists)
+                {
+                    Incomes nextParcel = CreateNextParcelFromPreviousMonth(previousIncome, reference, previousIncome.Position);
+
+                    _context.Incomes.Add(nextParcel);
+                    currentIncomes.Add(nextParcel);
+                }
             }
 
-            // normaliza: garante Position única e sequencial
+            foreach (Incomes previousIncome in previousIncomes)
+            {
+                Incomes? income = currentIncomes.FirstOrDefault(e => IsSameIncomeFromPreviousMonth(e, previousIncome));
+
+                if (income != null)
+                {
+                    income.Position = previousIncome.Position;
+                }
+            }
+
             List<Incomes> ordered = currentIncomes.OrderBy(e => e.Position)
-                                                  .ThenBy(e => e.Description)
-                                                  .ToList();
+                                          .ThenBy(e => e.Description)
+                                          .ThenBy(e => e.ParcelNumber)
+                                          .ToList();
 
             short pos = 1;
 
             foreach (Incomes income in ordered)
+            {
                 income.Position = pos++;
+            }
 
             await _context.SaveChangesAsync();
         }
@@ -377,20 +704,37 @@ namespace BudgetAPI.Services
                 {
                     bool isYield = string.Equals(prev.Type, "Y", StringComparison.OrdinalIgnoreCase);
 
+                    if (HasNextParcel(prev))
+                    {
+                        Incomes nextParcel = CreateNextParcelFromPreviousMonth(prev, reference, prev.Position);
+
+                        _context.Incomes.Add(nextParcel);
+
+                        continue;
+                    }
+
+                    if (IsParceledIncome(prev))
+                    {
+                        continue;
+                    }
+
                     _context.Incomes.Add(new Incomes
                     {
-                        UserId      = _user.Id,
-                        Reference   = reference,
-                        Position    = prev.Position,
-                        Description = prev.Description,
-                        ToReceive   = isYield ? 0 : prev.ToReceive,
-                        Received    = 0,
-                        Note        = prev.Note,
-                        CardId      = null,
-                        AccountId   = prev.AccountId,
-                        Type        = prev.Type,
-                        PeopleId    = prev.PeopleId,
-                        RelatedId   = null
+                        UserId         = _user.Id,
+                        Reference      = reference,
+                        Position       = prev.Position,
+                        Description    = prev.Description,
+                        ToReceive      = isYield ? 0 : prev.ToReceive,
+                        Received       = 0,
+                        ParcelNumber   = null,
+                        Parcels        = null,
+                        TotalToReceive = isYield ? 0 : prev.TotalToReceive,
+                        Note           = prev.Note,
+                        CardId         = null,
+                        AccountId      = prev.AccountId,
+                        Type           = prev.Type,
+                        PeopleId       = prev.PeopleId,
+                        RelatedId      = null
                     });
                 }
 
@@ -424,10 +768,10 @@ namespace BudgetAPI.Services
 
                 decimal tarifa = peopleCount * 3m;
 
-                Incomes? tarifaIncome = await _context.Incomes.Where(i => 
-                                                                    i.UserId == _user.Id && 
-                                                                    i.Reference == reference && 
-                                                                    i.CardId == null && 
+                Incomes? tarifaIncome = await _context.Incomes.Where(i =>
+                                                                    i.UserId == _user.Id &&
+                                                                    i.Reference == reference &&
+                                                                    i.CardId == null &&
                                                                     i.Description == "Tarifa")
                                                               .FirstOrDefaultAsync();
 
@@ -439,24 +783,28 @@ namespace BudgetAPI.Services
 
                     _context.Incomes.Add(new Incomes
                     {
-                        UserId      = _user.Id,
-                        Reference   = reference,
-                        Position    = (short)(maxPos + 1),
-                        Description = "Tarifa",
-                        ToReceive   = tarifa,
-                        Received    = 0,
-                        Note        = null,
-                        CardId      = null,
-                        AccountId   = null,
-                        Type        = "R",
-                        PeopleId    = null,
-                        RelatedId   = null
+                        UserId         = _user.Id,
+                        Reference      = reference,
+                        Position       = (short)(maxPos + 1),
+                        Description    = "Tarifa",
+                        ToReceive      = tarifa,
+                        Received       = 0,
+                        ParcelNumber   = null,
+                        Parcels        = null,
+                        TotalToReceive = tarifa,
+                        Note           = null,
+                        CardId         = null,
+                        AccountId      = null,
+                        Type           = "R",
+                        PeopleId       = null,
+                        RelatedId      = null
                     });
                 }
                 else
                 {
-                    tarifaIncome.ToReceive = tarifa;
-                    tarifaIncome.Received  = 0;
+                    tarifaIncome.ToReceive      = tarifa;
+                    tarifaIncome.TotalToReceive = tarifa;
+                    tarifaIncome.Received       = 0;
                 }
 
                 await _context.SaveChangesAsync();
