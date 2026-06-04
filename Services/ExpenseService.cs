@@ -16,7 +16,7 @@ namespace BudgetAPI.Services
         IQueryable<ExpensesDTO2> GetExpensesComboList(string reference);
         IQueryable<ExpensesByCategories> GetExpensesByCategories(string reference, int cardId);
         ExpensesByCategories GetExpensesAndCardPostingsByCategoryId(int? id, string reference, int cardId);
-        Task<int> PutExpenses(Expenses expenses);
+        Task<int> PutExpenses(Expenses expenses, bool repeatToNextMonths = false);
         void PutExpensesWithParcels(Expenses expenses, bool repeat, int qtyMonths);
         Task<int> SetPositions(List<Expenses> expenses);
         Task<int> AddValue(Expenses expense, decimal value);
@@ -187,11 +187,72 @@ namespace BudgetAPI.Services
             return expensesByCategory;
         }
 
-        public Task<int> PutExpenses(Expenses expense)
+        public async Task<int> PutExpenses(Expenses expense, bool repeatToNextMonths = false)
         {
-            _context.Entry(expense).State = EntityState.Modified;
+            using var transaction = await _context.Database.BeginTransactionAsync();
 
-            return _context.SaveChangesAsync();
+            try
+            {
+                Expenses? savedExpense = await _context.Expenses.AsNoTracking()
+                                                        .Where(e => e.Id == expense.Id && e.UserId == _user.Id)
+                                                        .FirstOrDefaultAsync();
+
+                if (savedExpense == null)
+                {
+                    throw new Exception("Despesa não encontrada para o usuário atual.");
+                }
+
+                string originalDescription = (savedExpense.Description ?? string.Empty).Trim();
+                string originalReference   = savedExpense.Reference;
+
+                expense.UserId = _user.Id;
+
+                _context.Entry(expense).State = EntityState.Modified;
+
+                if (repeatToNextMonths)
+                {
+                    List<Expenses> futureExpenses = await _context.Expenses.Where(e =>
+                                                                      e.UserId == _user.Id &&
+                                                                      e.Id != expense.Id &&
+                                                                      e.Paid == 0 &&
+                                                                      e.Description != null &&
+                                                                      e.Description.Trim() == originalDescription &&
+                                                                      string.Compare(e.Reference, originalReference) > 0)
+                                                                 .ToListAsync();
+
+                    foreach (Expenses item in futureExpenses)
+                    {
+                        item.Description   = expense.Description;
+                        item.ToPay         = expense.ToPay;
+                        item.TotalToPay    = expense.TotalToPay;
+                        item.Note          = expense.Note;
+                        item.CardId        = expense.CardId;
+                        item.AccountId     = expense.AccountId;
+                        item.DueDate       = GetFutureDueDate(expense, item.Reference);
+                        item.ParcelNumber  = expense.ParcelNumber;
+                        item.Parcels       = expense.Parcels;
+                        item.CategoryId    = expense.CategoryId;
+                        item.Scheduled     = expense.Scheduled;
+                        item.PeopleId      = expense.PeopleId;
+                        item.DueDay        = expense.DueDay;
+                        item.ExpectedValue = expense.ExpectedValue;
+                        item.Fixed         = expense.Fixed;
+
+                        _context.Entry(item).State = EntityState.Modified;
+                    }
+                }
+
+                int result = await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+
+                return result;
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
         }
 
         public void PutExpensesWithParcels(Expenses expenses, bool repeat, int qtyMonths)
@@ -433,6 +494,30 @@ namespace BudgetAPI.Services
             }
 
             return expensesList;
+        }
+
+        private static DateTime? GetFutureDueDate(Expenses sourceExpense, string targetReference)
+        {
+            if (!sourceExpense.DueDate.HasValue)
+            {
+                return null;
+            }
+
+            DateTime targetMonth = DateTime.ParseExact(targetReference, "yyyyMM", null);
+
+            if (sourceExpense.DueDay.HasValue)
+            {
+                int lastDay = DateTime.DaysInMonth(targetMonth.Year, targetMonth.Month);
+                int dueDay  = Math.Min(sourceExpense.DueDay.Value, lastDay);
+
+                return new DateTime(targetMonth.Year, targetMonth.Month, dueDay);
+            }
+
+            DateTime sourceMonth = DateTime.ParseExact(sourceExpense.Reference, "yyyyMM", null);
+
+            int monthDiff = ((targetMonth.Year - sourceMonth.Year) * 12) + targetMonth.Month - sourceMonth.Month;
+
+            return sourceExpense.DueDate.Value.AddMonths(monthDiff);
         }
 
         private static ExpensesDTO ExpensesToDTO(Expenses expense) =>

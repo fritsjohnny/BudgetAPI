@@ -12,7 +12,7 @@ namespace BudgetAPI.Services
         IQueryable<IncomesDTO> GetIncomes(string reference);
         IQueryable<IncomesDTO> GetMyIncomes(string reference);
         IQueryable<IncomesDTO2> GetIncomesComboList(string reference);
-        Task<int> PutIncomes(Incomes incomes);
+        Task<int> PutIncomes(Incomes incomes, bool repeatToNextMonths = false);
         void PutIncomesWithParcels(Incomes incomes, int qtyMonths);
         Task<int> SetPositions(List<Incomes> incomes);
         Task<int> AddValue(Incomes income, decimal value);
@@ -87,11 +87,64 @@ namespace BudgetAPI.Services
             return incomes;
         }
 
-        public Task<int> PutIncomes(Incomes income)
+        public async Task<int> PutIncomes(Incomes income, bool repeatToNextMonths = false)
         {
-            _context.Entry(income).State = EntityState.Modified;
+            using var transaction = await _context.Database.BeginTransactionAsync();
 
-            return _context.SaveChangesAsync();
+            try
+            {
+                Incomes? savedIncome = await _context.Incomes.AsNoTracking()
+                                                             .Where(i => i.Id == income.Id && i.UserId == _user.Id)
+                                                             .FirstOrDefaultAsync();
+
+                if (savedIncome == null)
+                {
+                    throw new Exception("Receita não encontrada para o usuário atual.");
+                }
+
+                string originalDescription = (savedIncome.Description ?? string.Empty).Trim();
+                string originalReference   = savedIncome.Reference;
+
+                income.UserId = _user.Id;
+
+                _context.Entry(income).State = EntityState.Modified;
+
+                if (repeatToNextMonths)
+                {
+                    List<Incomes> futureIncomes = await _context.Incomes.Where(i =>
+                                                                               i.UserId == _user.Id &&
+                                                                               i.Id != income.Id &&
+                                                                               i.Received == 0 &&
+                                                                               i.Description != null &&
+                                                                               i.Description.Trim() == originalDescription &&
+                                                                               string.Compare(i.Reference, originalReference) > 0)
+                                                                        .ToListAsync();
+
+                    foreach (Incomes item in futureIncomes)
+                    {
+                        item.Description = income.Description;
+                        item.ToReceive   = income.ToReceive;
+                        item.Note        = income.Note;
+                        item.CardId      = income.CardId;
+                        item.AccountId   = income.AccountId;
+                        item.Type        = income.Type;
+                        item.PeopleId    = income.PeopleId;
+
+                        _context.Entry(item).State = EntityState.Modified;
+                    }
+                }
+
+                int result = await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+
+                return result;
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
         }
 
         public void PutIncomesWithParcels(Incomes incomes, int qtyMonths)

@@ -65,7 +65,7 @@ namespace BudgetAPI.Controllers
 
         // PUT: api/Incomes/5
         [HttpPut("{id}")]
-        public async Task<IActionResult> PutIncomes(int id, Incomes income)
+        public async Task<IActionResult> PutIncomes(int id, Incomes income, bool repeatToNextMonths = false)
         {
             if (id != income.Id || !_incomeService.ValidarUsuario(id))
             {
@@ -74,7 +74,7 @@ namespace BudgetAPI.Controllers
 
             try
             {
-                await _incomeService.PutIncomes(income);
+                await _incomeService.PutIncomes(income, repeatToNextMonths);
             }
             catch (DbUpdateConcurrencyException dex)
             {
