@@ -54,12 +54,13 @@ builder.Services.AddScoped<IExpenseService, ExpenseService>();
 builder.Services.AddScoped<IIncomeService, IncomeService>();
 builder.Services.AddScoped<IPeopleService, PeopleService>();
 builder.Services.AddScoped<IAccountApplicationService, AccountApplicationService>();
+builder.Services.AddScoped<IAnnualSavingsService, AnnualSavingsService>();
 builder.Services.AddHttpContextAccessor();
-// Serviço para manter a API acordada
+// ServiÃ§o para manter a API acordada
 builder.Services.AddHostedService<KeepAliveService>();
-// Configuração do Firebase para notificações push
+// ConfiguraÃ§Ã£o do Firebase para notificaÃ§Ãµes push
 builder.Services.AddSingleton<FirebaseNotificationService>();
-// Configuração do serviço de notificações diárias
+// ConfiguraÃ§Ã£o do serviÃ§o de notificaÃ§Ãµes diÃ¡rias
 builder.Services.AddScoped<INotificationJobService, NotificationJobService>();
 builder.Services.AddHostedService<DailyNotificationHostedService>();
 
@@ -72,7 +73,7 @@ app.UseCors(options => options//.WithOrigins("http://localhost:4200")
 					   .AllowAnyOrigin()
 					   );
 
-// Swagger middleware (liga só em dev)
+// Swagger middleware (liga sÃ³ em dev)
 if (app.Environment.IsDevelopment())
 {
 	app.UseSwagger();

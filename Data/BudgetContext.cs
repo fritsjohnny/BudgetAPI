@@ -22,7 +22,9 @@ namespace BudgetAPI.Data
             modelBuilder.Entity<ExpensesByCategories>().ToTable("GetExpensesByCategories").HasNoKey();
             modelBuilder.Entity<ExpensesDTO>().ToTable("GetMyExpenses").HasNoKey();
             modelBuilder.Entity<AccountsYieldsDTO>().ToTable("GetAccountsYields").HasNoKey();
-
+            modelBuilder.Entity<AnnualSavingsMonthProjectionDTO>().ToTable("GetAnnualSavings").HasNoKey();
+            modelBuilder.Entity<AnnualSavingsConsolidatedDTO>().ToTable("GetAnnualSavingsConsolidated").HasNoKey();
+            
             modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetAccountTotals), new[] { typeof(int), typeof(string), typeof(int) }));
             modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetAccountsSummary), new[] { typeof(string), typeof(int) }));
             modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetTotalsAccountsSummary), new[] { typeof(string), typeof(int) }));
@@ -31,6 +33,8 @@ namespace BudgetAPI.Data
             modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetExpensesByCategories), new[] { typeof(string), typeof(int), typeof(int) }));
             modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetMyExpenses), new[] { typeof(string), typeof(int) }));
             modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetAccountsYields), new[] { typeof(string), typeof(int?), typeof(int) }));
+            modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetAnnualSavings), new[] { typeof(int), typeof(int), typeof(bool), typeof(bool) }));
+            modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetAnnualSavingsConsolidated), new[] { typeof(int), typeof(bool), typeof(bool), typeof(bool), typeof(bool) }));
         }
 
         public IQueryable<AccountsDTO> GetAccountTotals(int accountId, string reference, int userId) => FromExpression(() => GetAccountTotals(accountId, reference, userId));
@@ -41,7 +45,9 @@ namespace BudgetAPI.Data
         public IQueryable<ExpensesByCategories> GetExpensesByCategories(string reference, int cardId, int userId) => FromExpression(() => GetExpensesByCategories(reference, cardId, userId));
         public IQueryable<ExpensesDTO> GetMyExpenses(string reference, int userId) => FromExpression(() => GetMyExpenses(reference, userId));
         public IQueryable<AccountsYieldsDTO> GetAccountsYields(string? reference, int? accountId, int userId) => FromExpression(() => GetAccountsYields(reference, accountId, userId));
-
+        public IQueryable<AnnualSavingsMonthProjectionDTO> GetAnnualSavings(int year, int userId, bool includeCurrentMonth, bool includeNextMonths) => FromExpression(() => GetAnnualSavings(year, userId, includeCurrentMonth, includeNextMonths));
+        public IQueryable<AnnualSavingsConsolidatedDTO> GetAnnualSavingsConsolidated(int userId, bool includeCurrentYear, bool includeNextYears, bool includeCurrentMonth, bool includeNextMonths) => FromExpression(() => GetAnnualSavingsConsolidated(userId, includeCurrentYear, includeNextYears, includeCurrentMonth, includeNextMonths));
+        
         public DbSet<Accounts> Accounts { get; set; }
         public DbSet<Cards> Cards { get; set; }
         public DbSet<Users> Users { get; set; }
