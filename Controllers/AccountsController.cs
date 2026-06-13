@@ -124,5 +124,11 @@ namespace BudgetAPI.Controllers
 
             return Ok();
         }
+
+        [HttpGet("Available")]
+        public async Task<ActionResult<IEnumerable<Accounts>>> GetAvailableAccounts(string reference)
+        {
+            return await _accountService.GetAvailableAccounts(reference).ToListAsync();
+        }
     }
 }

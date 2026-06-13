@@ -18,6 +18,7 @@ namespace BudgetAPI.Services
         Task<int> DeleteAccount(Accounts account);
         bool AccountExists(int id);
         bool ValidarUsuario(int id);
+        IQueryable<Accounts> GetAvailableAccounts(string reference);
     }
 
     public class AccountService : IAccountService
@@ -126,6 +127,23 @@ namespace BudgetAPI.Services
             }
 
             return _context.SaveChangesAsync();
+        }
+
+        public IQueryable<Accounts> GetAvailableAccounts(string reference)
+        {
+            IQueryable<Accounts> accounts = _context.Accounts
+                .Where(a =>
+                    a.UserId == _user.Id &&
+                    (
+                        a.Disabled != true ||
+                        _context.AccountsPostings.Any(ap =>
+                            ap.AccountId == a.Id &&
+                            ap.Reference == reference)
+                    ))
+                .OrderBy(a => a.Position ?? short.MaxValue)
+                .ThenBy(a => a.Name);
+
+            return accounts;
         }
     }
 }

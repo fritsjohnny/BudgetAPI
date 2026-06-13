@@ -13,6 +13,7 @@ namespace BudgetAPI.Services
         Task<int> DeleteCard(Cards card);
         bool CardExists(int id);
         bool ValidarUsuario(int id);
+        IQueryable<CardsDTO> GetAvailableCards(string reference);
     }
     public class CardService : ICardService
     {
@@ -85,5 +86,25 @@ namespace BudgetAPI.Services
             ClosingDay     = card.ClosingDay,
             AppPackageName = card.AppPackageName,
         };
+
+        public IQueryable<CardsDTO> GetAvailableCards(string reference)
+        {
+            IQueryable<CardsDTO> cards = _context.Cards
+                .Where(c =>
+                    c.UserId == _user.Id &&
+                    (
+                        c.Disabled != true ||
+                        _context.CardsPostings.Any(cp =>
+                            cp.CardId == c.Id &&
+                            cp.Reference == reference) ||
+                        _context.CardsReceipts.Any(cr =>
+                            cr.CardId == c.Id &&
+                            cr.Reference == reference)
+                    ))
+                .OrderBy(c => c.Name)
+                .Select(c => CardToDTO(c));
+
+            return cards;
+        }
     }
 }
