@@ -59,5 +59,6 @@ namespace BudgetAPI.Data
         public DbSet<CardsReceipts> CardsReceipts { get; set; }
         public DbSet<Categories> Categories { get; set; }
         public DbSet<AccountsApplications> AccountsApplications { get; set; }
+        public DbSet<AccountYieldRanges> AccountYieldRanges { get; set; }
     }
 }
