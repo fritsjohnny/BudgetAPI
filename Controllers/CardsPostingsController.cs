@@ -37,7 +37,7 @@ namespace BudgetAPI.Controllers
         [HttpGet("ByDescription")]
         public async Task<CardsPostings?> ByDescription([FromQuery] string description)
         {
-            CardsPostings? cardsPostings = await _cardPostingService.GetCardsPostingsByDescription(description).FirstOrDefaultAsync();
+            CardsPostings? cardsPostings = await _cardPostingService.GetCardsPostingsByDescription(description);
 
             return cardsPostings;
         }

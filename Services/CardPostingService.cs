@@ -10,7 +10,7 @@ namespace BudgetAPI.Services
         IQueryable<CardsPostings> GetCardsPostings(int id);
         IQueryable<CardsPostingsDTO> GetCardsPostingsById(int id);
         IQueryable<CardsPostingsDTO> GetCardsPostings(int cardId, string reference);
-        IQueryable<CardsPostings> GetCardsPostingsByDescription(string description);
+        Task<CardsPostings?> GetCardsPostingsByDescription(string description);
         IQueryable<CardsPostings> GetCardsPostingsByPeopleId(int peopleId, string reference);
         IQueryable<CardsPostingsPeople> GetCardsPostingsPeople(int cardId, string reference);
         IQueryable<CardsPostingsDTO> GetCardsPostingsByReferences(string initialReference, string finalReference, int categoryId, bool others);
@@ -67,14 +67,35 @@ namespace BudgetAPI.Services
             return cardsPostings;
         }
 
-        public IQueryable<CardsPostings> GetCardsPostingsByDescription(string description)
+        public async Task<CardsPostings?> GetCardsPostingsByDescription(string description)
         {
-            IQueryable<CardsPostings>? cardsPostings = _context.CardsPostings.Where(cp => cp.Card!.UserId == _user.Id &&
-                                                                                    cp.CategoryId != null &&
-                                                                                    cp.Description.ToLower().Trim() == description.ToLower().Trim())
-                                                                             .OrderByDescending(o => o.Id);
+            string normalizedDescription = (description ?? string.Empty).Trim().ToLower();
 
-            return cardsPostings;
+            IQueryable<CardsPostings> cardsPostings = _context.CardsPostings
+                .Where(cp => cp.Card!.UserId == _user.Id &&
+                             cp.Description != null &&
+                             cp.Description.ToLower().Trim() == normalizedDescription);
+
+            int? categoryId = await cardsPostings
+                .Where(cp => cp.CategoryId != null)
+                .OrderByDescending(cp => cp.Id)
+                .Select(cp => cp.CategoryId)
+                .FirstOrDefaultAsync();
+
+            int? peopleId = await cardsPostings
+                .Where(cp => cp.PeopleId != null)
+                .OrderByDescending(cp => cp.Id)
+                .Select(cp => cp.PeopleId)
+                .FirstOrDefaultAsync();
+
+            if (!categoryId.HasValue && !peopleId.HasValue)
+                return null;
+
+            return new CardsPostings
+            {
+                CategoryId = categoryId,
+                PeopleId = peopleId
+            };
         }
 
         public IQueryable<CardsPostingsDTO> GetCardsPostings(int cardId, string reference)
