@@ -27,7 +27,7 @@ namespace BudgetAPI.Services
 
         public IQueryable<People> GetPeople()
         {
-            IQueryable<People> query = _context.People.Where(a => a.UserId == _user.Id);
+            IQueryable<People> query = _context.People.Where(a => a.UserId == _user.Id).OrderBy(a => a.Name);
 
             return query;
         }
