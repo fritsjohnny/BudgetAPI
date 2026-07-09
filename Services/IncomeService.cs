@@ -96,8 +96,8 @@ namespace BudgetAPI.Services
             try
             {
                 Incomes? savedIncome = await _context.Incomes.AsNoTracking()
-                                                             .Where(i => i.Id == income.Id && i.UserId == _user.Id)
-                                                             .FirstOrDefaultAsync();
+                                                     .Where(i => i.Id == income.Id && i.UserId == _user.Id)
+                                                     .FirstOrDefaultAsync();
 
                 if (savedIncome == null)
                 {
@@ -114,31 +114,37 @@ namespace BudgetAPI.Services
                     income.TotalToReceive = income.ToReceive;
                 }
 
+                bool preserveFutureIncomeValues = IsYieldIncome(income);
+
                 _context.Entry(income).State = EntityState.Modified;
 
                 if (repeatToNextMonths)
                 {
                     List<Incomes> futureIncomes = await _context.Incomes.Where(i =>
-                                                                               i.UserId == _user.Id &&
-                                                                               i.Id != income.Id &&
-                                                                               i.Received == 0 &&
-                                                                               i.Description != null &&
-                                                                               i.Description.Trim() == originalDescription &&
-                                                                               string.Compare(i.Reference, originalReference) > 0)
-                                                                        .ToListAsync();
+                                                                       i.UserId == _user.Id &&
+                                                                       i.Id != income.Id &&
+                                                                       i.Received == 0 &&
+                                                                       i.Description != null &&
+                                                                       i.Description.Trim() == originalDescription &&
+                                                                       string.Compare(i.Reference, originalReference) > 0)
+                                                                .ToListAsync();
 
                     foreach (Incomes item in futureIncomes)
                     {
-                        item.Description    = income.Description;
-                        item.ToReceive      = income.ToReceive;
-                        item.ParcelNumber   = income.ParcelNumber;
-                        item.Parcels        = income.Parcels;
-                        item.TotalToReceive = income.TotalToReceive;
-                        item.Note           = income.Note;
-                        item.CardId         = income.CardId;
-                        item.AccountId      = income.AccountId;
-                        item.Type           = income.Type;
-                        item.PeopleId       = income.PeopleId;
+                        item.Description = income.Description;
+                        item.Note        = income.Note;
+                        item.CardId      = income.CardId;
+                        item.AccountId   = income.AccountId;
+                        item.Type        = income.Type;
+                        item.PeopleId    = income.PeopleId;
+
+                        if (!preserveFutureIncomeValues)
+                        {
+                            item.ToReceive      = income.ToReceive;
+                            item.ParcelNumber   = income.ParcelNumber;
+                            item.Parcels        = income.Parcels;
+                            item.TotalToReceive = income.TotalToReceive;
+                        }
 
                         _context.Entry(item).State = EntityState.Modified;
                     }
@@ -408,6 +414,11 @@ namespace BudgetAPI.Services
         public bool ValidarUsuario(int incomeId)
         {
             return GetIncomes(incomeId).Any();
+        }
+
+        private static bool IsYieldIncome(Incomes income)
+        {
+            return string.Equals(income.Type, "Y", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool HasNextParcel(Incomes income)
