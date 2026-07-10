@@ -22,6 +22,7 @@
         public Categories? Category { get; set; }
         public bool? Fixed { get; set; }
         public DateTime? DueDate { get; set; }
+        public bool Provisioned { get; set; }
         public bool? IsPaid { get; set; }
         public int? ExpenseId { get; set; }
     }

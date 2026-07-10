@@ -90,7 +90,7 @@ namespace BudgetAPI.Services
             return incomes;
         }
 
-        public async  Task<int> PutIncomes(Incomes income, bool repeatToNextMonths = false)
+        public async Task<int> PutIncomes(Incomes income, bool repeatToNextMonths = false)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
 
@@ -159,6 +159,7 @@ namespace BudgetAPI.Services
                         item.AccountId   = income.AccountId;
                         item.Type        = income.Type;
                         item.PeopleId    = income.PeopleId;
+                        item.ReceiptDate = GetFutureReceiptDate(income, savedIncome.Reference, item.Reference);
 
                         if (!preserveFutureIncomeValues)
                         {
@@ -653,9 +654,15 @@ namespace BudgetAPI.Services
                 AccountId      = previousIncome.AccountId,
                 Type           = previousIncome.Type,
                 PeopleId       = previousIncome.PeopleId,
-                RelatedId      = previousIncome.RelatedId ?? previousIncome.Id
+                RelatedId      = previousIncome.RelatedId ?? previousIncome.Id,
+                ReceiptDate    = GetFutureReceiptDate(
+                    previousIncome,
+                    previousIncome.Reference,
+                    reference)
             };
         }
+
+
 
         private static string GetNewReference(string reference)
         {
@@ -701,6 +708,10 @@ namespace BudgetAPI.Services
                     Type           = income.Type,
                     PeopleId       = income.PeopleId
                 };
+                item.ReceiptDate = GetFutureReceiptDate(
+                    income,
+                    income.Reference,
+                    reference);
 
                 incomesList.Add(item);
 
@@ -745,7 +756,8 @@ namespace BudgetAPI.Services
                     CardId         = income.CardId,
                     AccountId      = income.AccountId,
                     Type           = income.Type,
-                    PeopleId       = income.PeopleId
+                    PeopleId       = income.PeopleId,
+                    ReceiptDate    = GetFutureReceiptDate(income, income.Reference, reference)
                 };
 
                 incomesList.Add(item);
@@ -775,7 +787,8 @@ namespace BudgetAPI.Services
             AccountId      = income.AccountId,
             Type           = income.Type,
             PeopleId       = income.PeopleId,
-            RelatedId      = income.RelatedId
+            RelatedId      = income.RelatedId,
+            ReceiptDate    = income.ReceiptDate
         };
 
         private static IncomesDTO2 IncomesToComboList(Incomes income) =>
@@ -785,6 +798,17 @@ namespace BudgetAPI.Services
             Position    = income.Position,
             Description = income.Description
         };
+
+        private static DateTime? GetFutureReceiptDate(
+            Incomes sourceIncome,
+            string sourceReference,
+            string targetReference)
+        {
+            return ReferenceDateHelper.GetProportionalDate(
+                sourceIncome.ReceiptDate,
+                sourceReference,
+                targetReference);
+        }
 
         public async Task OrderByPreviousMonth(string reference)
         {
@@ -844,6 +868,12 @@ namespace BudgetAPI.Services
                 if (income != null)
                 {
                     income.Position = previousIncome.Position;
+
+                    if (!income.ReceiptDate.HasValue &&
+                        previousIncome.ReceiptDate.HasValue)
+                    {
+                        income.ReceiptDate = GetFutureReceiptDate(previousIncome, previousReference, reference);
+                    }
                 }
             }
 
@@ -922,25 +952,22 @@ namespace BudgetAPI.Services
 
                     Incomes newIncome = new()
                     {
-                        UserId = _user.Id,
-                        Reference = reference,
-                        Position = previousIncome.Position,
-                        Description = previousIncome.Description,
-                        ToReceive = isYield
-                            ? 0
-                            : previousIncome.ToReceive,
-                        Received = 0,
-                        ParcelNumber = null,
-                        Parcels = null,
-                        TotalToReceive = isYield
-                            ? 0
-                            : previousIncome.TotalToReceive,
-                        Note = previousIncome.Note,
-                        CardId = null,
-                        AccountId = previousIncome.AccountId,
-                        Type = previousIncome.Type,
-                        PeopleId = previousIncome.PeopleId,
-                        RelatedId = null
+                        UserId         = _user.Id,
+                        Reference      = reference,
+                        Position       = previousIncome.Position,
+                        Description    = previousIncome.Description,
+                        ToReceive      = isYield ? 0 : previousIncome.ToReceive,
+                        Received       = 0,
+                        ParcelNumber   = null,
+                        Parcels        = null,
+                        TotalToReceive = isYield ? 0 : previousIncome.TotalToReceive,
+                        Note           = previousIncome.Note,
+                        CardId         = null,
+                        AccountId      = previousIncome.AccountId,
+                        Type           = previousIncome.Type,
+                        PeopleId       = previousIncome.PeopleId,
+                        RelatedId      = null,
+                        ReceiptDate    = GetFutureReceiptDate(previousIncome, previousReference, reference),
                     };
 
                     await FinancialResourceValidator.ValidateResourcesForCreateAsync(

@@ -274,6 +274,7 @@ namespace BudgetAPI.Services
                         item.PeopleId    = cardPosting.PeopleId;
                         item.Note        = cardPosting.Note;
                         item.Others      = cardPosting.Others;
+                        item.Provisioned = cardPosting.Provisioned;
 
                         _context.Entry(item).State = EntityState.Modified;
                     }
@@ -604,6 +605,7 @@ namespace BudgetAPI.Services
                     Amount       = GetParcelAmount(totalAmount, totalParcels, i),
                     TotalAmount  = cardPosting.TotalAmount,
                     Others       = cardPosting.Others,
+                    Provisioned  = cardPosting.Provisioned,
                     Note         = cardPosting.Note,
                     CategoryId   = cardPosting.CategoryId,
                     Fixed        = cardPosting.Fixed,
@@ -645,6 +647,7 @@ namespace BudgetAPI.Services
                 Amount       = cardPosting.Amount,
                 TotalAmount  = cardPosting.TotalAmount,
                 Others       = cardPosting.Others,
+                Provisioned  = cardPosting.Provisioned,
                 Note         = cardPosting.Note,
                 CategoryId   = cardPosting.CategoryId,
                 Category     = cardPosting.Category?.Name,
@@ -685,6 +688,7 @@ namespace BudgetAPI.Services
                     Amount       = cardPosting.Amount,
                     TotalAmount  = cardPosting.TotalAmount,
                     Others       = cardPosting.Others,
+                    Provisioned  = cardPosting.Provisioned,
                     Note         = cardPosting.Note,
                     CategoryId   = cardPosting.CategoryId,
                     Fixed        = cardPosting.Fixed,
