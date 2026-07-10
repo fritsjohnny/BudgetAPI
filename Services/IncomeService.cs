@@ -116,6 +116,11 @@ namespace BudgetAPI.Services
 
                 bool preserveFutureIncomeValues = IsYieldIncome(income);
 
+                if (repeatToNextMonths && !preserveFutureIncomeValues)
+                {
+                    income.ToReceive = GetFutureToReceive(income, income);
+                }
+
                 _context.Entry(income).State = EntityState.Modified;
 
                 if (repeatToNextMonths)
@@ -140,9 +145,7 @@ namespace BudgetAPI.Services
 
                         if (!preserveFutureIncomeValues)
                         {
-                            item.ToReceive      = income.ToReceive;
-                            item.ParcelNumber   = income.ParcelNumber;
-                            item.Parcels        = income.Parcels;
+                            item.ToReceive      = GetFutureToReceive(income, item);
                             item.TotalToReceive = income.TotalToReceive;
                         }
 
@@ -190,15 +193,23 @@ namespace BudgetAPI.Services
 
                 List<Incomes> incomesList = GenerateIncomes(income);
 
+                Incomes? currentGeneratedIncome = incomesList.FirstOrDefault();
+
+                if (currentGeneratedIncome != null)
+                {
+                    income.ToReceive = currentGeneratedIncome.ToReceive;
+                }
+
                 int relatedId = income.RelatedId ?? income.Id;
 
-                List<Incomes> futureIncomesToRemove = _context.Incomes.Where(i =>
-                                                        i.UserId == _user.Id &&
-                                                        i.Id != income.Id &&
-                                                        (i.RelatedId == relatedId || i.Id == relatedId) &&
-                                                        i.ParcelNumber > income.ParcelNumber &&
-                                                        i.Received == 0)
-                                                   .ToList();
+                List<Incomes> futureIncomesToRemove = _context.Incomes
+                    .Where(i =>
+                        i.UserId == _user.Id &&
+                        i.Id != income.Id &&
+                        (i.RelatedId == relatedId || i.Id == relatedId) &&
+                        i.ParcelNumber > income.ParcelNumber &&
+                        i.Received == 0)
+                    .ToList();
 
                 if (futureIncomesToRemove.Any())
                 {
@@ -824,6 +835,24 @@ namespace BudgetAPI.Services
 
                 await tx.CommitAsync();
             }
+        }
+
+        private static decimal GetFutureToReceive(Incomes sourceIncome, Incomes targetIncome)
+        {
+            if (sourceIncome.TotalToReceive != 0 &&
+                targetIncome.Parcels.HasValue &&
+                targetIncome.Parcels.Value > 1 &&
+                targetIncome.ParcelNumber.HasValue &&
+                targetIncome.ParcelNumber.Value >= 1 &&
+                targetIncome.ParcelNumber.Value <= targetIncome.Parcels.Value)
+            {
+                return GetParcelAmount(
+                    sourceIncome.TotalToReceive,
+                    targetIncome.Parcels.Value,
+                    targetIncome.ParcelNumber.Value);
+            }
+
+            return sourceIncome.ToReceive;
         }
     }
 }

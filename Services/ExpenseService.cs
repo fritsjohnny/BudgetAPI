@@ -1,4 +1,5 @@
 ﻿using BudgetAPI.Data;
+using BudgetAPI.Helpers;
 using BudgetAPI.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -207,6 +208,11 @@ namespace BudgetAPI.Services
 
                 expense.UserId = _user.Id;
 
+                if (repeatToNextMonths)
+                {
+                    expense.ToPay = GetFutureToPay(expense, expense);
+                }
+
                 _context.Entry(expense).State = EntityState.Modified;
 
                 if (repeatToNextMonths)
@@ -223,14 +229,12 @@ namespace BudgetAPI.Services
                     foreach (Expenses item in futureExpenses)
                     {
                         item.Description   = expense.Description;
-                        item.ToPay         = expense.ToPay;
+                        item.ToPay         = GetFutureToPay(expense, item);
                         item.TotalToPay    = expense.TotalToPay;
                         item.Note          = expense.Note;
                         item.CardId        = expense.CardId;
                         item.AccountId     = expense.AccountId;
-                        item.DueDate       = GetFutureDueDate(expense, item.Reference);
-                        item.ParcelNumber  = expense.ParcelNumber;
-                        item.Parcels       = expense.Parcels;
+                        item.DueDate       = GetFutureDueDate(expense, savedExpense.Reference, item.Reference);
                         item.CategoryId    = expense.CategoryId;
                         item.Scheduled     = expense.Scheduled;
                         item.PeopleId      = expense.PeopleId;
@@ -257,18 +261,60 @@ namespace BudgetAPI.Services
 
         public void PutExpensesWithParcels(Expenses expenses, bool repeat, int qtyMonths)
         {
-            _context.Entry(expenses).State = EntityState.Modified;
+            Expenses? savedExpense = _context.Expenses
+                .AsNoTracking()
+                .FirstOrDefault(e =>
+                    e.Id == expenses.Id &&
+                    e.UserId == _user.Id);
 
-            List<Expenses>? expensesList = repeat ?
-                                           RepeatExpenses(expenses, qtyMonths) :
-                                           GenerateExpenses(expenses);
-
-            foreach (Expenses cp in expensesList.Skip(1))
+            if (savedExpense == null)
             {
-                _context.Expenses.Add(cp);
-
-                _context.SaveChanges();
+                throw new InvalidOperationException(
+                    "Despesa não encontrada para o usuário atual.");
             }
+
+            int relatedId =
+                savedExpense.RelatedId ??
+                savedExpense.Id;
+
+            bool hasExistingParcelSequence =
+                savedExpense.Parcels.GetValueOrDefault() > 1 ||
+                savedExpense.RelatedId.HasValue ||
+                _context.Expenses.Any(e =>
+                    e.UserId == _user.Id &&
+                    e.Id != savedExpense.Id &&
+                    e.RelatedId == relatedId);
+
+            if (!repeat && hasExistingParcelSequence)
+            {
+                throw new InvalidOperationException(
+                    "As parcelas desta despesa já foram geradas. " +
+                    "Não é permitido gerar novamente as demais parcelas.");
+            }
+
+            _context.Entry(expenses).State =
+                EntityState.Modified;
+
+            List<Expenses> expensesList =
+                repeat
+                    ? RepeatExpenses(expenses, qtyMonths)
+                    : GenerateExpenses(expenses);
+
+            Expenses? currentGeneratedExpense =
+                expensesList.FirstOrDefault();
+
+            if (currentGeneratedExpense != null)
+            {
+                expenses.ToPay =
+                    currentGeneratedExpense.ToPay;
+            }
+
+            foreach (Expenses item in expensesList.Skip(1))
+            {
+                _context.Expenses.Add(item);
+            }
+
+            _context.SaveChanges();
         }
 
         public Task<int> SetPositions(List<Expenses> expenses)
@@ -393,32 +439,80 @@ namespace BudgetAPI.Services
 
         private List<Expenses> GenerateExpenses(Expenses expense)
         {
-            var expensesList = new List<Expenses>();
+            List<Expenses> expensesList = new();
 
-            string? reference  = expense.Reference;
-            DateTime? dueDate  = expense.DueDate;
-            decimal totalToPay = expense.TotalToPay;
-            int parcels        = expense.Parcels ?? 1;
-            decimal toPay      = Math.Round(totalToPay / parcels, 2, MidpointRounding.AwayFromZero);
+            string reference = expense.Reference;
+            int parcelNumber = expense.ParcelNumber ?? 1;
+            int totalParcels = expense.Parcels ?? 1;
 
-            for (int? i = 1; i <= expense.Parcels; i++)
+            if (parcelNumber <= 0 || parcelNumber > totalParcels)
             {
-                // Calculate the difference between total amount and the sum of parcels
-                decimal difference = totalToPay - (toPay * parcels);
+                throw new InvalidOperationException(
+                    "O número da parcela é inválido para o total de parcelas informado.");
+            }
 
-                var e = new Expenses
+            for (int i = parcelNumber; i <= totalParcels; i++)
+            {
+                DateTime? dueDate = ReferenceDateHelper.GetProportionalDate(expense.DueDate, expense.Reference, reference, expense.DueDay);
+
+                Expenses item = new()
                 {
                     UserId        = expense.UserId,
                     Reference     = reference,
-                    Position      = expense.Id > 0 && i == expense.ParcelNumber ? expense.Position : GetNewPosition(reference),
+                    Position      = expense.Id > 0 && i == parcelNumber ? expense.Position : GetNewPosition(reference),
                     Description   = expense.Description,
-                    ToPay         = toPay,
-                    Paid          = expense.Paid,
+                    ToPay         = GetParcelAmount(expense.TotalToPay, totalParcels, i),
+                    Paid          = i == parcelNumber ? expense.Paid : 0,
                     Note          = expense.Note,
                     CardId        = expense.CardId,
                     AccountId     = expense.AccountId,
                     DueDate       = dueDate,
                     ParcelNumber  = i,
+                    Parcels       = totalParcels,
+                    TotalToPay    = expense.TotalToPay,
+                    CategoryId    = expense.CategoryId,
+                    Scheduled     = expense.Scheduled,
+                    PeopleId      = expense.PeopleId,
+                    DueDay        = expense.DueDay,
+                    ExpectedValue = expense.ExpectedValue,
+                    Fixed         = expense.Fixed
+                };
+
+                expensesList.Add(item);
+
+                reference = GetNewReference(reference);
+            }
+
+            return expensesList;
+        }
+
+        private List<Expenses> RepeatExpenses(Expenses expense, int qtyMonths)
+        {
+            List<Expenses> expensesList = new();
+
+            string reference = expense.Reference;
+
+            for (int i = 0; i <= qtyMonths; i++)
+            {
+                DateTime? dueDate = ReferenceDateHelper.GetProportionalDate(
+                    expense.DueDate,
+                    expense.Reference,
+                    reference,
+                    expense.DueDay);
+
+                Expenses item = new()
+                {
+                    UserId        = expense.UserId,
+                    Reference     = reference,
+                    Position      = expense.Id > 0 && i == 0 ? expense.Position : GetNewPosition(reference),
+                    Description   = expense.Description,
+                    ToPay         = expense.ToPay,
+                    Paid          = i == 0 ? expense.Paid : 0,
+                    Note          = expense.Note,
+                    CardId        = expense.CardId,
+                    AccountId     = expense.AccountId,
+                    DueDate       = dueDate,
+                    ParcelNumber  = expense.ParcelNumber,
                     Parcels       = expense.Parcels,
                     TotalToPay    = expense.TotalToPay,
                     CategoryId    = expense.CategoryId,
@@ -429,95 +523,21 @@ namespace BudgetAPI.Services
                     Fixed         = expense.Fixed
                 };
 
-                // Add the difference to the first parcel
-                if (i == expense.ParcelNumber && difference > 0)
-                {
-                    e.ToPay += difference;
-                }
-
-                expensesList.Add(e);
+                expensesList.Add(item);
 
                 reference = GetNewReference(reference);
-                dueDate = dueDate?.AddMonths(1);
-
-                // Update totalToPay for the remaining parcels
-                totalToPay -= e.ToPay;
-
-                parcels -= parcels > 1 ? 1 : 0;
-
-                // Recalculate the toPay amount for the next parcel
-                toPay = parcels > 1 ? Math.Round(totalToPay / parcels, 2, MidpointRounding.AwayFromZero) : totalToPay;
             }
 
             return expensesList;
         }
 
-        private List<Expenses> RepeatExpenses(Expenses expense, int qtyMonths)
+        private static DateTime? GetFutureDueDate(Expenses sourceExpense, string sourceReference, string targetReference)
         {
-            var expensesList = new List<Expenses>();
-
-            var reference = expense.Reference;
-            var dueDate   = expense.DueDate;
-
-            for (int i = 1; i <= (qtyMonths + 1); i++)
-            {
-                if (i >= expense.ParcelNumber)
-                {
-                    var e = new Expenses
-                    {
-                        UserId        = expense.UserId,
-                        Reference     = reference,
-                        Position      = expense.Id > 0 && i == expense.ParcelNumber ? expense.Position : GetNewPosition(reference),
-                        Description   = expense.Description,
-                        ToPay         = expense.ToPay,
-                        Paid          = expense.Paid,
-                        Note          = expense.Note,
-                        CardId        = expense.CardId,
-                        AccountId     = expense.AccountId,
-                        DueDate       = dueDate,
-                        ParcelNumber  = expense.ParcelNumber,
-                        Parcels       = expense.Parcels,
-                        TotalToPay    = expense.TotalToPay,
-                        CategoryId    = expense.CategoryId,
-                        Scheduled     = expense.Scheduled,
-                        PeopleId      = expense.PeopleId,
-                        DueDay        = expense.DueDay,
-                        ExpectedValue = expense.ExpectedValue,
-                        Fixed         = expense.Fixed
-                    };
-
-                    expensesList.Add(e);
-
-                    reference = GetNewReference(reference);
-                    dueDate   = dueDate?.AddMonths(1);
-                }
-            }
-
-            return expensesList;
-        }
-
-        private static DateTime? GetFutureDueDate(Expenses sourceExpense, string targetReference)
-        {
-            if (!sourceExpense.DueDate.HasValue)
-            {
-                return null;
-            }
-
-            DateTime targetMonth = DateTime.ParseExact(targetReference, "yyyyMM", null);
-
-            if (sourceExpense.DueDay.HasValue)
-            {
-                int lastDay = DateTime.DaysInMonth(targetMonth.Year, targetMonth.Month);
-                int dueDay  = Math.Min(sourceExpense.DueDay.Value, lastDay);
-
-                return new DateTime(targetMonth.Year, targetMonth.Month, dueDay);
-            }
-
-            DateTime sourceMonth = DateTime.ParseExact(sourceExpense.Reference, "yyyyMM", null);
-
-            int monthDiff = ((targetMonth.Year - sourceMonth.Year) * 12) + targetMonth.Month - sourceMonth.Month;
-
-            return sourceExpense.DueDate.Value.AddMonths(monthDiff);
+            return ReferenceDateHelper.GetProportionalDate(
+                sourceExpense.DueDate,
+                sourceReference,
+                targetReference,
+                sourceExpense.DueDay);
         }
 
         private static ExpensesDTO ExpensesToDTO(Expenses expense) =>
@@ -588,9 +608,11 @@ namespace BudgetAPI.Services
 
                     if (expense.DueDate == null && previousExpense.DueDate != null)
                     {
-                        expense.DueDate  = previousExpense.DueDay != null ?
-                                           new DateTime(previousExpense.DueDate.Value.Year, previousExpense.DueDate.Value.Month, previousExpense.DueDay.Value).AddMonths(1) :
-                                           previousExpense.DueDate.Value.AddMonths(1);
+                        expense.DueDate = ReferenceDateHelper.GetProportionalDate(
+                            previousExpense.DueDate,
+                            previousExpense.Reference,
+                            reference,
+                            previousExpense.DueDay);
                     }
                 }
             }
@@ -686,21 +708,21 @@ namespace BudgetAPI.Services
 
                 if (!alreadyExists)
                 {
-                    // Calcular nova data de vencimento
-                    DateTime? newDueDate = null;
-                    if (fixedExpense.DueDay.HasValue)
+                    DateTime? sourceDueDate = fixedExpense.DueDate;
+
+                    if (!sourceDueDate.HasValue && fixedExpense.DueDay.HasValue)
                     {
-                        // Se tem DueDay definido, usar esse dia no novo mês
-                        DateTime referenceDate = DateTime.ParseExact(reference, "yyyyMM", null);
-                        int maxDay = DateTime.DaysInMonth(referenceDate.Year, referenceDate.Month);
-                        int dueDay = Math.Min(fixedExpense.DueDay.Value, maxDay);
-                        newDueDate = new DateTime(referenceDate.Year, referenceDate.Month, dueDay);
+                        sourceDueDate = DateTime.ParseExact(
+                            fixedExpense.Reference,
+                            "yyyyMM",
+                            null);
                     }
-                    else if (fixedExpense.DueDate.HasValue)
-                    {
-                        // Se não tem DueDay mas tem DueDate, adicionar 1 mês
-                        newDueDate = fixedExpense.DueDate.Value.AddMonths(1);
-                    }
+
+                    DateTime? newDueDate = ReferenceDateHelper.GetProportionalDate(
+                        sourceDueDate,
+                        fixedExpense.Reference,
+                        reference,
+                        fixedExpense.DueDay);
 
                     // Criar nova despesa
                     var newExpense = new Expenses
@@ -738,6 +760,47 @@ namespace BudgetAPI.Services
             }
 
             return createdCount;
+        }
+
+        private static decimal GetParcelAmount(decimal totalToPay, int parcels, int parcelNumber)
+        {
+            if (parcels <= 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(parcels),
+                    "A quantidade de parcelas deve ser maior que zero.");
+            }
+
+            if (parcelNumber <= 0 || parcelNumber > parcels)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(parcelNumber),
+                    "O número da parcela deve estar entre 1 e o total de parcelas.");
+            }
+
+            decimal toPay = Math.Round(totalToPay / parcels, 2, MidpointRounding.AwayFromZero);
+
+            decimal difference = totalToPay - (toPay * parcels);
+
+            return parcelNumber == 1 ? toPay + difference : toPay;
+        }
+
+        private static decimal GetFutureToPay(Expenses sourceExpense, Expenses targetExpense)
+        {
+            if (sourceExpense.TotalToPay != 0 &&
+                targetExpense.Parcels.HasValue &&
+                targetExpense.Parcels.Value > 1 &&
+                targetExpense.ParcelNumber.HasValue &&
+                targetExpense.ParcelNumber.Value >= 1 &&
+                targetExpense.ParcelNumber.Value <= targetExpense.Parcels.Value)
+            {
+                return GetParcelAmount(
+                    sourceExpense.TotalToPay,
+                    targetExpense.Parcels.Value,
+                    targetExpense.ParcelNumber.Value);
+            }
+
+            return sourceExpense.ToPay;
         }
     }
 }

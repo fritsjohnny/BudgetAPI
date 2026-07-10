@@ -1,4 +1,5 @@
 ﻿using BudgetAPI.Data;
+using BudgetAPI.Helpers;
 using BudgetAPI.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -190,47 +191,79 @@ namespace BudgetAPI.Services
 
             try
             {
-                List<int?> expenseIdsToAdjust = new List<int?>();
+                CardsPostings? savedCardPosting = await _context.CardsPostings
+                    .AsNoTracking()
+                    .Where(cp => cp.Id == cardPosting.Id && cp.Card!.UserId == _user.Id)
+                    .FirstOrDefaultAsync();
 
-                int? previousExpenseId = await _context.CardsPostings.AsNoTracking()
-                                                                     .Where(cp => cp.Id == cardPosting.Id && cp.Card!.UserId == _user.Id)
-                                                                     .Select(cp => cp.ExpenseId)
-                                                                     .FirstOrDefaultAsync();
-
-                expenseIdsToAdjust.Add(previousExpenseId);
-                expenseIdsToAdjust.Add(cardPosting.ExpenseId);
+                if (savedCardPosting == null)
+                {
+                    throw new Exception("Lançamento de cartão não encontrado para o usuário atual.");
+                }
 
                 if (!ValidateCardAndUser(cardPosting.CardId))
                 {
                     throw new Exception("Erro no CardPostingService: cartão inválido para o usuário atual.");
                 }
 
+                List<int?> expenseIdsToAdjust = new()
+                {
+                    savedCardPosting.ExpenseId,
+                    cardPosting.ExpenseId
+                };
+
+                if (repeatToNextMonths)
+                {
+                    cardPosting.Amount = GetFutureAmount(cardPosting, cardPosting);
+                }
+
                 _context.Entry(cardPosting).State = EntityState.Modified;
 
                 if (repeatToNextMonths)
                 {
-                    List<CardsPostings> futurePostings = await _context.CardsPostings.Where(cp =>
-                                                                                            cp.RelatedId != null &&
-                                                                                            (cp.RelatedId == cardPosting.Id || cp.RelatedId == cardPosting.RelatedId) &&
-                                                                                            string.Compare(cp.Reference, cardPosting.Reference) > 0 &&
-                                                                                            cp.Card!.UserId == _user.Id)
-                                                                                     .ToListAsync();
+                    string originalDescription = (savedCardPosting.Description ?? string.Empty).Trim();
+                    int relatedId = savedCardPosting.RelatedId ?? savedCardPosting.Id;
+
+                    List<CardsPostings> futurePostings = await _context.CardsPostings
+                        .Where(cp =>
+                            cp.Card!.UserId == _user.Id &&
+                            cp.Id != savedCardPosting.Id &&
+                            string.Compare(cp.Reference, savedCardPosting.Reference) > 0 &&
+                            cp.IsPaid != true &&
+                            (
+                                cp.RelatedId == relatedId ||
+                                (
+                                    cp.CardId == savedCardPosting.CardId &&
+                                    cp.Description != null &&
+                                    cp.Description.Trim() == originalDescription &&
+                                    cp.Amount == savedCardPosting.Amount &&
+                                    cp.TotalAmount == savedCardPosting.TotalAmount &&
+                                    cp.PeopleId == savedCardPosting.PeopleId &&
+                                    cp.CategoryId == savedCardPosting.CategoryId &&
+                                    cp.Others == savedCardPosting.Others &&
+                                    cp.Parcels == savedCardPosting.Parcels &&
+                                    cp.Note == savedCardPosting.Note &&
+                                    cp.Fixed == savedCardPosting.Fixed
+                                )
+                            ))
+                        .ToListAsync();
 
                     expenseIdsToAdjust.AddRange(futurePostings.Select(cp => cp.ExpenseId));
+
+                    bool isInstallment = savedCardPosting.Parcels.GetValueOrDefault() > 1;
 
                     foreach (CardsPostings item in futurePostings)
                     {
                         item.CardId      = cardPosting.CardId;
-                        item.Date        = cardPosting.Date;
+                        item.Date        = isInstallment ? cardPosting.Date : ReferenceDateHelper.GetProportionalDate(cardPosting.Date, savedCardPosting.Reference!, item.Reference!);
+                        item.DueDate     = ReferenceDateHelper.GetProportionalDate(cardPosting.DueDate, savedCardPosting.Reference!, item.Reference!);
                         item.Description = cardPosting.Description;
                         item.TotalAmount = cardPosting.TotalAmount;
-                        item.Amount      = cardPosting.Amount;
+                        item.Amount      = GetFutureAmount(cardPosting, item);
                         item.Fixed       = cardPosting.Fixed;
                         item.CategoryId  = cardPosting.CategoryId;
                         item.PeopleId    = cardPosting.PeopleId;
                         item.Note        = cardPosting.Note;
-                        item.IsPaid      = cardPosting.IsPaid;
-                        item.ExpenseId   = cardPosting.ExpenseId;
                         item.Others      = cardPosting.Others;
 
                         _context.Entry(item).State = EntityState.Modified;
@@ -252,44 +285,102 @@ namespace BudgetAPI.Services
 
         public async Task PutCardsPostingsWithParcels(CardsPostings cardPosting, bool repeat, int qtyMonths)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            using var transaction =
+                await _context.Database.BeginTransactionAsync();
 
             try
             {
-                int? previousExpenseId = await _context.CardsPostings.AsNoTracking()
-                                                                     .Where(cp => cp.Id == cardPosting.Id && cp.Card!.UserId == _user.Id)
-                                                                     .Select(cp => cp.ExpenseId)
-                                                                     .FirstOrDefaultAsync();
+                CardsPostings? savedCardPosting =
+                    await _context.CardsPostings
+                        .AsNoTracking()
+                        .Where(cp =>
+                            cp.Id == cardPosting.Id &&
+                            cp.Card!.UserId == _user.Id)
+                        .FirstOrDefaultAsync();
+
+                if (savedCardPosting == null)
+                {
+                    throw new InvalidOperationException(
+                        "Lançamento de cartão não encontrado para o usuário atual.");
+                }
+
+                int? previousExpenseId =
+                    savedCardPosting.ExpenseId;
+
+                int savedRelatedId =
+                    savedCardPosting.RelatedId ??
+                    savedCardPosting.Id;
+
+                bool hasExistingParcelSequence =
+                    savedCardPosting.Parcels.GetValueOrDefault() > 1 ||
+                    savedCardPosting.RelatedId.HasValue ||
+                    await _context.CardsPostings.AnyAsync(cp =>
+                        cp.Card!.UserId == _user.Id &&
+                        cp.Id != savedCardPosting.Id &&
+                        cp.RelatedId == savedRelatedId);
+
+                if (!repeat && hasExistingParcelSequence)
+                {
+                    throw new InvalidOperationException(
+                        "As parcelas deste lançamento já foram geradas. " +
+                        "Não é permitido gerar novamente as demais parcelas.");
+                }
 
                 if (!ValidateCardAndUser(cardPosting.CardId))
                 {
-                    throw new Exception("Erro no CardPostingService.PutCardsPostingsWithParcels: cartão inválido para o usuário atual.");
+                    throw new Exception(
+                        "Erro no CardPostingService.PutCardsPostingsWithParcels: " +
+                        "cartão inválido para o usuário atual.");
                 }
 
-                _context.Entry(cardPosting).State = EntityState.Modified;
+                _context.Entry(cardPosting).State =
+                    EntityState.Modified;
 
-                List<CardsPostings> cardsPostingsList = repeat ?
-                                                RepeatCardsPostings(cardPosting, qtyMonths) :
-                                                GenerateCardsPostings(cardPosting);
+                List<CardsPostings> cardsPostingsList =
+                    repeat
+                        ? RepeatCardsPostings(
+                            cardPosting,
+                            qtyMonths)
+                        : GenerateCardsPostings(
+                            cardPosting);
 
-                int relatedId = cardPosting.RelatedId ?? cardPosting.Id;
+                CardsPostings? currentGeneratedPosting =
+                    cardsPostingsList.FirstOrDefault();
 
-                foreach (CardsPostings cp in cardsPostingsList.Skip(1))
+                if (currentGeneratedPosting != null)
                 {
-                    cp.RelatedId = relatedId;
-                    _context.CardsPostings.Add(cp);
+                    cardPosting.Amount =
+                        currentGeneratedPosting.Amount;
+                }
+
+                int relatedId =
+                    cardPosting.RelatedId ??
+                    cardPosting.Id;
+
+                foreach (
+                    CardsPostings item
+                    in cardsPostingsList.Skip(1))
+                {
+                    item.RelatedId = relatedId;
+
+                    _context.CardsPostings.Add(item);
                 }
 
                 await _context.SaveChangesAsync();
 
-                await AjustarDespesasVinculadas(previousExpenseId, cardPosting.ExpenseId);
+                await AjustarDespesasVinculadas(
+                    previousExpenseId,
+                    cardPosting.ExpenseId);
 
                 await transaction.CommitAsync();
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                throw new Exception($"Erro no CardPostingService.PutCardsPostingsWithParcels: {ex.Message}", ex);
+
+                throw new Exception(
+                    $"Erro no CardPostingService.PutCardsPostingsWithParcels: {ex.Message}",
+                    ex);
             }
         }
 
@@ -464,57 +555,46 @@ namespace BudgetAPI.Services
 
         private List<CardsPostings> GenerateCardsPostings(CardsPostings cardPosting)
         {
-            var cardsPostingsList = new List<CardsPostings>();
+            List<CardsPostings> cardsPostingsList = new();
 
-            string? reference    = cardPosting.Reference;
-            decimal totalAmount  = cardPosting.TotalAmount ?? 0;
-            int parcels          = cardPosting.Parcels ?? 1;
-            decimal amountParcel = Math.Round(totalAmount / parcels, 2, MidpointRounding.AwayFromZero);
+            string reference    = cardPosting.Reference!;
+            decimal totalAmount = cardPosting.TotalAmount ?? cardPosting.Amount;
+            int parcelNumber    = cardPosting.ParcelNumber ?? 1;
+            int totalParcels    = cardPosting.Parcels ?? 1;
 
-            for (int? i = 1; i <= cardPosting.Parcels; i++)
+            if (parcelNumber <= 0 || parcelNumber > totalParcels)
             {
-                // Calculate the difference between total amount and the sum of parcels
-                decimal difference = totalAmount - (amountParcel * parcels);
+                throw new InvalidOperationException(
+                    "O número da parcela é inválido para o total de parcelas informado.");
+            }
 
-                DateTime? dueDate = cardPosting.DueDate.HasValue ? cardPosting.DueDate.Value.AddMonths((i ?? 1) - 1) : null;
+            for (int i = parcelNumber; i <= totalParcels; i++)
+            {
+                DateTime? dueDate = ReferenceDateHelper.GetProportionalDate(cardPosting.DueDate, cardPosting.Reference!, reference);
 
-                var cp = new CardsPostings
+                CardsPostings item = new()
                 {
                     CardId       = cardPosting.CardId,
                     Date         = cardPosting.Date,
                     Reference    = reference,
                     PeopleId     = cardPosting.PeopleId,
-                    Position     = cardPosting.Id > 0 && i == 1 ? cardPosting.Position : GetNewPosition(reference, cardPosting.CardId),
+                    Position     = cardPosting.Id > 0 && i == parcelNumber ? cardPosting.Position : GetNewPosition(reference, cardPosting.CardId),
                     Description  = cardPosting.Description,
                     ParcelNumber = i,
-                    Parcels      = cardPosting.Parcels,
-                    Amount       = amountParcel,
+                    Parcels      = totalParcels,
+                    Amount       = GetParcelAmount(totalAmount, totalParcels, i),
                     TotalAmount  = cardPosting.TotalAmount,
                     Others       = cardPosting.Others,
                     Note         = cardPosting.Note,
                     CategoryId   = cardPosting.CategoryId,
                     Fixed        = cardPosting.Fixed,
-                    IsPaid       = false,
+                    IsPaid       = i == parcelNumber ? cardPosting.IsPaid : false,
                     DueDate      = dueDate
                 };
 
-                // Add the difference to the first parcel
-                if (i == cardPosting.ParcelNumber && difference > 0)
-                {
-                    cp.Amount += difference;
-                }
-
-                cardsPostingsList.Add(cp);
+                cardsPostingsList.Add(item);
 
                 reference = GetNewReference(reference);
-
-                // Substract the current amount from the total
-                totalAmount -= cp.Amount;
-
-                parcels -= parcels > 1 ? 1 : 0;
-
-                // Recalculate the amount of each parcel
-                amountParcel = parcels > 1 ? Math.Round(totalAmount / parcels, 2, MidpointRounding.AwayFromZero) : totalAmount;
             }
 
             return cardsPostingsList;
@@ -563,40 +643,38 @@ namespace BudgetAPI.Services
 
         private List<CardsPostings> RepeatCardsPostings(CardsPostings cardPosting, int qtyMonths)
         {
-            var cardPostingsList = new List<CardsPostings>();
+            List<CardsPostings> cardPostingsList = new();
 
-            string? reference = cardPosting.Reference;
+            string reference = cardPosting.Reference!;
 
-            for (int i = 1; i <= (qtyMonths + 1); i++)
+            for (int i = 0; i <= qtyMonths; i++)
             {
-                if (i >= cardPosting.ParcelNumber)
+                DateTime date     = ReferenceDateHelper.GetProportionalDate(cardPosting.Date, cardPosting.Reference!, reference);
+                DateTime? dueDate = ReferenceDateHelper.GetProportionalDate(cardPosting.DueDate, cardPosting.Reference!, reference);
+
+                CardsPostings item = new()
                 {
-                    DateTime? dueDate = cardPosting.DueDate.HasValue ? cardPosting.DueDate.Value.AddMonths(i - 1) : null;
+                    CardId       = cardPosting.CardId,
+                    Date         = date,
+                    DueDate      = dueDate,
+                    Reference    = reference,
+                    PeopleId     = cardPosting.PeopleId,
+                    Position     = cardPosting.Id > 0 && i == 0 ? cardPosting.Position : GetNewPosition(reference, cardPosting.CardId),
+                    Description  = cardPosting.Description,
+                    ParcelNumber = 1,
+                    Parcels      = cardPosting.Parcels,
+                    Amount       = cardPosting.Amount,
+                    TotalAmount  = cardPosting.TotalAmount,
+                    Others       = cardPosting.Others,
+                    Note         = cardPosting.Note,
+                    CategoryId   = cardPosting.CategoryId,
+                    Fixed        = cardPosting.Fixed,
+                    IsPaid       = i == 0 ? cardPosting.IsPaid : false
+                };
 
-                    var e = new CardsPostings
-                    {
-                        CardId       = cardPosting.CardId,
-                        Date         = i == 1 ? cardPosting.Date : cardPosting.Date.AddMonths(i - 1),
-                        Reference    = reference,
-                        PeopleId     = cardPosting.PeopleId,
-                        Position     = cardPosting.Id > 0 && i == 1 ? cardPosting.Position : GetNewPosition(reference, cardPosting.CardId),
-                        Description  = cardPosting.Description,
-                        ParcelNumber = 1,
-                        Parcels      = cardPosting.Parcels,
-                        Amount       = cardPosting.Amount,
-                        TotalAmount  = cardPosting.TotalAmount,
-                        Others       = cardPosting.Others,
-                        Note         = cardPosting.Note,
-                        CategoryId   = cardPosting.CategoryId,
-                        Fixed        = cardPosting.Fixed,
-                        IsPaid       = false,
-                        DueDate      = dueDate
-                    };
+                cardPostingsList.Add(item);
 
-                    cardPostingsList.Add(e);
-
-                    reference = GetNewReference(reference);
-                }
+                reference = GetNewReference(reference);
             }
 
             return cardPostingsList;
@@ -606,7 +684,7 @@ namespace BudgetAPI.Services
         {
             CardsPostings? cardPosting = _context.CardsPostings.Where(cp => cp.Card!.UserId == _user.Id &&
                                                                             cp.CategoryId != null &&
-                                                                            cp.Description.ToLower() == description.ToLower())
+                                                                            cp.Description!.ToLower() == description.ToLower())
                                                                .FirstOrDefault();
 
 
@@ -624,6 +702,47 @@ namespace BudgetAPI.Services
             {
                 await _expenseService.AjustarValorComBaseNaCategoria(expenseId);
             }
+        }
+
+        private static decimal GetParcelAmount(decimal totalAmount, int parcels, int parcelNumber)
+        {
+            if (parcels <= 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(parcels),
+                    "A quantidade de parcelas deve ser maior que zero.");
+            }
+
+            if (parcelNumber <= 0 || parcelNumber > parcels)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(parcelNumber),
+                    "O número da parcela deve estar entre 1 e o total de parcelas.");
+            }
+
+            decimal amount = Math.Round(totalAmount / parcels, 2, MidpointRounding.AwayFromZero);
+
+            decimal difference = totalAmount - (amount * parcels);
+
+            return parcelNumber == 1 ? amount + difference : amount;
+        }
+
+        private static decimal GetFutureAmount(CardsPostings sourcePosting, CardsPostings targetPosting)
+        {
+            if (sourcePosting.TotalAmount.HasValue &&
+                targetPosting.Parcels.HasValue &&
+                targetPosting.Parcels.Value > 1 &&
+                targetPosting.ParcelNumber.HasValue &&
+                targetPosting.ParcelNumber.Value >= 1 &&
+                targetPosting.ParcelNumber.Value <= targetPosting.Parcels.Value)
+            {
+                return GetParcelAmount(
+                    sourcePosting.TotalAmount.Value,
+                    targetPosting.Parcels.Value,
+                    targetPosting.ParcelNumber.Value);
+            }
+
+            return sourcePosting.Amount;
         }
     }
 }
