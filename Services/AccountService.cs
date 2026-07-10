@@ -1,4 +1,4 @@
-﻿using BudgetAPI.Data;
+using BudgetAPI.Data;
 using BudgetAPI.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,10 +11,10 @@ namespace BudgetAPI.Services
         IQueryable<AccountsDTO> GetAccountTotals(int account, string reference);
         IQueryable<AccountsSummary> GetAccountsSummary(string reference);
         IQueryable<AccountsSummaryTotals> GetAccountsSummaryTotals(string reference);
+        Task<AccountForecastBalanceReportDTO> GetForecastBalanceReport(int accountId, DateTime initialDate, DateTime finalDate);
         Task<int> PutAccount(Accounts account);
         Task<int> PostAccount(Accounts account);
         Task<int> SetPositions(List<Accounts> accounts);
-
         Task<int> DeleteAccount(Accounts account);
         bool AccountExists(int id);
         bool ValidarUsuario(int id);
@@ -24,7 +24,6 @@ namespace BudgetAPI.Services
     public class AccountService : IAccountService
     {
         private readonly BudgetContext _context;
-
         private readonly Users _user;
 
         public AccountService(BudgetContext context, IHttpContextAccessor httpContextAccessor)
@@ -48,7 +47,10 @@ namespace BudgetAPI.Services
             {
                 accountDto = _context.GetAccountTotals(accountId, reference, _user.Id);
             }
-            catch { /**/ }
+            catch
+            {
+                /**/
+            }
 
             return accountDto;
         }
@@ -61,7 +63,10 @@ namespace BudgetAPI.Services
             {
                 query = _context.GetAccountsSummary(reference, _user.Id);
             }
-            catch {/**/}
+            catch
+            {
+                /**/
+            }
 
             return query;
         }
@@ -74,16 +79,128 @@ namespace BudgetAPI.Services
             {
                 accountsSummaryTotals = _context.GetTotalsAccountsSummary(reference, _user.Id);
             }
-            catch { /**/ }
+            catch
+            {
+                /**/
+            }
 
             return accountsSummaryTotals;
         }
 
         public IQueryable<Accounts> GetAccount(int id)
         {
-            var accounts = _context.Accounts.Where(a => a.UserId == _user.Id && a.Id == id);
+            IQueryable<Accounts> accounts = _context.Accounts.Where(a => a.UserId == _user.Id && a.Id == id);
 
             return accounts;
+        }
+
+        public async Task<AccountForecastBalanceReportDTO> GetForecastBalanceReport(
+            int accountId,
+            DateTime initialDate,
+            DateTime finalDate)
+        {
+            DateTime startDate = initialDate.Date;
+            DateTime endDate   = finalDate.Date;
+
+            if (startDate > endDate)
+            {
+                throw new ArgumentException("A data inicial não pode ser maior que a data final.");
+            }
+
+            Accounts? account = await _context.Accounts
+                                              .AsNoTracking()
+                                              .FirstOrDefaultAsync(a => a.Id == accountId && a.UserId == _user.Id);
+
+            if (account == null)
+            {
+                throw new InvalidOperationException("Conta não encontrada para o usuário atual.");
+            }
+
+            string currentReference = DateTime.Today.ToString("yyyyMM");
+
+            decimal currentBalance = await _context.AccountsPostings
+                                                   .Where(ap => ap.AccountId == accountId &&
+                                                                string.Compare(ap.Reference, currentReference) <= 0)
+                                                   .SumAsync(ap => (decimal?)ap.Amount) ?? 0;
+
+            List<AccountForecastMovement> incomes = await _context.Incomes
+                .AsNoTracking()
+                .Where(i => i.UserId == _user.Id &&
+                            i.ReceiptDate.HasValue &&
+                            i.ReceiptDate.Value >= startDate &&
+                            i.ReceiptDate.Value <= endDate &&
+                            (i.ToReceive - i.Received) != 0)
+                .Select(i => new AccountForecastMovement
+                {
+                    Id          = i.Id,
+                    Date        = i.ReceiptDate!.Value,
+                    Description = i.Description,
+                    Amount      = i.ToReceive - i.Received,
+                    Reference   = i.Reference,
+                    Type        = "R",
+                    TypeOrder   = 0,
+                    Position    = i.Position
+                })
+                .ToListAsync();
+
+            List<AccountForecastMovement> expenses = await _context.Expenses
+                .AsNoTracking()
+                .Where(e => e.UserId == _user.Id &&
+                            e.DueDate.HasValue &&
+                            e.DueDate.Value >= startDate &&
+                            e.DueDate.Value <= endDate &&
+                            (e.ToPay - Math.Abs(e.Paid)) != 0)
+                .Select(e => new AccountForecastMovement
+                {
+                    Id          = e.Id,
+                    Date        = e.DueDate!.Value,
+                    Description = e.Description ?? string.Empty,
+                    Amount      = (e.ToPay - Math.Abs(e.Paid)) * -1,
+                    Reference   = e.Reference,
+                    Type        = "P",
+                    TypeOrder   = 1,
+                    Position    = e.Position
+                })
+                .ToListAsync();
+
+            List<AccountForecastMovement> movements = incomes
+                .Concat(expenses)
+                .OrderBy(m => m.Date)
+                .ThenBy(m => m.TypeOrder)
+                .ThenBy(m => m.Position ?? short.MaxValue)
+                .ThenBy(m => m.Id)
+                .ToList();
+
+            decimal runningBalance = currentBalance;
+            int sequence           = 1;
+
+            List<AccountForecastBalanceReportRowDTO> rows = new();
+
+            foreach (AccountForecastMovement movement in movements)
+            {
+                runningBalance += movement.Amount;
+
+                rows.Add(new AccountForecastBalanceReportRowDTO
+                {
+                    Id          = movement.Id,
+                    Sequence    = sequence++,
+                    Date        = movement.Date,
+                    Description = movement.Description,
+                    Amount      = movement.Amount,
+                    Balance     = runningBalance,
+                    Reference   = movement.Reference,
+                    Type        = movement.Type
+                });
+            }
+
+            return new AccountForecastBalanceReportDTO
+            {
+                AccountId     = account.Id,
+                AccountName   = account.Name,
+                CurrentBalance = currentBalance,
+                FinalBalance   = runningBalance,
+                Rows           = rows
+            };
         }
 
         public Task<int> PutAccount(Accounts account)
@@ -144,6 +261,18 @@ namespace BudgetAPI.Services
                 .ThenBy(a => a.Name);
 
             return accounts;
+        }
+
+        private sealed class AccountForecastMovement
+        {
+            public int Id { get; set; }
+            public DateTime Date { get; set; }
+            public string Description { get; set; } = string.Empty;
+            public decimal Amount { get; set; }
+            public string Reference { get; set; } = string.Empty;
+            public string Type { get; set; } = string.Empty;
+            public int TypeOrder { get; set; }
+            public short? Position { get; set; }
         }
     }
 }

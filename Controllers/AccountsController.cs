@@ -1,4 +1,4 @@
-﻿using BudgetAPI.Authorization;
+using BudgetAPI.Authorization;
 using BudgetAPI.Models;
 using BudgetAPI.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -34,6 +34,37 @@ namespace BudgetAPI.Controllers
         public async Task<ActionResult<AccountsSummaryTotals>> GetAccountsSummaryTotals(string reference)
         {
             return await _accountService.GetAccountsSummaryTotals(reference).FirstOrDefaultAsync() ?? new AccountsSummaryTotals();
+        }
+
+        [HttpGet("ForecastBalanceReport")]
+        public async Task<ActionResult<AccountForecastBalanceReportDTO>> GetForecastBalanceReport(
+            [FromQuery] int accountId,
+            [FromQuery] DateTime initialDate,
+            [FromQuery] DateTime finalDate)
+        {
+            try
+            {
+                AccountForecastBalanceReportDTO report = await _accountService.GetForecastBalanceReport(
+                    accountId,
+                    initialDate,
+                    finalDate);
+
+                return Ok(report);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return NotFound(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                return Problem(
+                    detail: ex.Message,
+                    title: "Erro ao gerar o relatório de saldo previsto em conta");
+            }
         }
 
         // GET: api/Accounts
