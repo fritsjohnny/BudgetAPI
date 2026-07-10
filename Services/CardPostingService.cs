@@ -1,4 +1,5 @@
-﻿using BudgetAPI.Data;
+﻿using System.Text.RegularExpressions;
+using BudgetAPI.Data;
 using BudgetAPI.Helpers;
 using BudgetAPI.Models;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +21,8 @@ namespace BudgetAPI.Services
         Task PutCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths);
         Task PostCardsPostings(CardsPostings cardPosting);
         Task PostCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths);
+        Task PostCardsPostingsFromNotification(CardsPostings cardPosting);
+        Task PostCardsPostingsWithParcelsFromNotification(CardsPostings cardPosting, bool repeat, int qtyMonths);
         Task DeleteCardsPostings(CardsPostings cardPosting);
         Task<int> SetPositions(List<CardsPostings> cardsPostings);
         bool ValidarUsuario(int cardPostingId);
@@ -40,6 +43,135 @@ namespace BudgetAPI.Services
             _context        = context;
             _user           = httpContextAccessor.HttpContext!.Items["User"] as Users ?? new Users();
             _expenseService = expenseService;
+        }
+
+        // Normaliza descrições: trim, reduzir múltiplos espaços para um
+        private static string NormalizeDescription(string? description)
+        {
+            string normalizedDescription = Regex.Replace((description ?? string.Empty).Trim(), @"\s+", " ");
+
+            return normalizedDescription;
+        }
+
+        private static bool HasSameInstallmentIdentity(CardsPostings candidate, CardsPostings cardPosting)
+        {
+            int candidateParcels        = candidate.Parcels.GetValueOrDefault(1);
+            int cardPostingParcels      = cardPosting.Parcels.GetValueOrDefault(1);
+            int candidateParcelNumber   = candidate.ParcelNumber.GetValueOrDefault(1);
+            int cardPostingParcelNumber = cardPosting.ParcelNumber.GetValueOrDefault(1);
+
+            return candidateParcels > 1 &&
+                   cardPostingParcels > 1 &&
+                   candidate.TotalAmount.HasValue &&
+                   cardPosting.TotalAmount.HasValue &&
+                   candidate.TotalAmount.Value == cardPosting.TotalAmount.Value &&
+                   candidateParcels == cardPostingParcels &&
+                   candidateParcelNumber == cardPostingParcelNumber;
+        }
+
+        private static bool IsProvisionedValueMatch(CardsPostings candidate, CardsPostings cardPosting)
+        {
+            return candidate.Amount == cardPosting.Amount ||
+                   HasSameInstallmentIdentity(candidate, cardPosting);
+        }
+
+        private static int GetProvisionedValueMatchPriority(CardsPostings candidate, CardsPostings cardPosting)
+        {
+            if (HasSameInstallmentIdentity(candidate, cardPosting))
+                return 0;
+
+            if (candidate.Amount == cardPosting.Amount)
+                return 1;
+
+            return int.MaxValue;
+        }
+
+        private async Task<CardsPostings?> FindProvisionedPostingAsync(CardsPostings cardPosting)
+        {
+            List<CardsPostings> candidates = await _context.CardsPostings
+                                                   .Where(cp => cp.Card!.UserId == _user.Id &&
+                                                                cp.CardId == cardPosting.CardId &&
+                                                                cp.Reference == cardPosting.Reference &&
+                                                                cp.Provisioned)
+                                                   .ToListAsync();
+
+            string normalizedDescription = NormalizeDescription(cardPosting.Description);
+
+            CardsPostings? provisionedPosting = candidates.Where(candidate => string.Equals(NormalizeDescription(candidate.Description),
+                                                                                     normalizedDescription,
+                                                                                     StringComparison.OrdinalIgnoreCase) &&
+                                                                      IsProvisionedValueMatch(candidate, cardPosting))
+                                                   .OrderBy(candidate => GetProvisionedValueMatchPriority(candidate, cardPosting))
+                                                   .ThenBy(candidate => Math.Abs((candidate.Date.Date - cardPosting.Date.Date).Days))
+                                                   .ThenByDescending(candidate => candidate.Id)
+                                                   .FirstOrDefault();
+
+            return provisionedPosting;
+        }
+
+        private static void ApplyNotificationToProvisioned(CardsPostings provisioned, CardsPostings cardPosting)
+        {
+            bool preserveInstallmentStructure = provisioned.Parcels.GetValueOrDefault(1) > 1 &&
+                                        cardPosting.Parcels.GetValueOrDefault(1) <= 1 &&
+                                        cardPosting.ParcelNumber.GetValueOrDefault(1) <= 1;
+
+            int? peopleId     = cardPosting.PeopleId ?? provisioned.PeopleId;
+            int? categoryId   = cardPosting.CategoryId ?? provisioned.CategoryId;
+            int? expenseId    = cardPosting.ExpenseId ?? provisioned.ExpenseId;
+            bool? fixedValue  = cardPosting.Fixed ?? provisioned.Fixed;
+            DateTime? dueDate = cardPosting.DueDate ?? provisioned.DueDate;
+            bool? isPaid      = cardPosting.IsPaid ?? provisioned.IsPaid;
+            string? note      = !string.IsNullOrWhiteSpace(cardPosting.Note) ? cardPosting.Note : provisioned.Note;
+
+            decimal amount      = preserveInstallmentStructure ? provisioned.Amount : cardPosting.Amount;
+            decimal totalAmount = preserveInstallmentStructure
+                ? provisioned.TotalAmount ?? cardPosting.TotalAmount ?? cardPosting.Amount
+                : cardPosting.TotalAmount ?? cardPosting.Amount;
+
+            int? parcelNumber = preserveInstallmentStructure ? provisioned.ParcelNumber : cardPosting.ParcelNumber;
+            int? parcels      = preserveInstallmentStructure ? provisioned.Parcels : cardPosting.Parcels;
+
+            provisioned.CardId       = cardPosting.CardId;
+            provisioned.Date         = cardPosting.Date;
+            provisioned.Reference    = cardPosting.Reference;
+            provisioned.Description  = cardPosting.Description;
+            provisioned.Amount       = amount;
+            provisioned.TotalAmount  = totalAmount;
+            provisioned.ParcelNumber = parcelNumber;
+            provisioned.Parcels      = parcels;
+            provisioned.PeopleId     = peopleId;
+            provisioned.CategoryId   = categoryId;
+            provisioned.ExpenseId    = expenseId;
+            provisioned.Fixed        = fixedValue;
+            provisioned.DueDate      = dueDate;
+            provisioned.IsPaid       = isPaid;
+            provisioned.Note         = note;
+            provisioned.Others       = peopleId.HasValue;
+            provisioned.Provisioned  = false;
+
+            cardPosting.Id           = provisioned.Id;
+            cardPosting.CardId       = provisioned.CardId;
+            cardPosting.Date         = provisioned.Date;
+            cardPosting.Reference    = provisioned.Reference;
+            cardPosting.Position     = provisioned.Position;
+            cardPosting.Description  = provisioned.Description;
+            cardPosting.Amount       = provisioned.Amount;
+            cardPosting.TotalAmount  = provisioned.TotalAmount;
+            cardPosting.ParcelNumber = provisioned.ParcelNumber;
+            cardPosting.Parcels      = provisioned.Parcels;
+            cardPosting.PeopleId     = provisioned.PeopleId;
+            cardPosting.CategoryId   = provisioned.CategoryId;
+            cardPosting.ExpenseId    = provisioned.ExpenseId;
+            cardPosting.Fixed        = provisioned.Fixed;
+            cardPosting.DueDate      = provisioned.DueDate;
+            cardPosting.IsPaid       = provisioned.IsPaid;
+            cardPosting.Note         = provisioned.Note;
+            cardPosting.Others       = provisioned.Others;
+            cardPosting.RelatedId    = provisioned.RelatedId;
+            cardPosting.Provisioned  = false;
+            cardPosting.People       = null;
+            cardPosting.Card         = null;
+            cardPosting.Category     = null;
         }
 
         public IQueryable<CardsPostings> GetCardsPostings()
@@ -410,26 +542,7 @@ namespace BudgetAPI.Services
 
             try
             {
-                await FinancialResourceValidator.ValidateCardForCreateAsync(
-                    _context,
-                    _user.Id,
-                    cardPosting.CardId);
-
-                // Se a pessoa já existe...
-                if (_context.People.FirstOrDefault(p => p.Id == cardPosting.PeopleId && p.UserId == _user.Id) != null)
-                {
-                    cardPosting.People = null;
-                }
-
-                cardPosting.Position = (short)((_context.CardsPostings.Where(c => c.Reference == cardPosting.Reference && c.CardId == cardPosting.CardId && c.Card!.UserId == _user.Id)
-                                                                      .Max(c => c.Position) ?? 0) + 1);
-
-                _context.CardsPostings.Add(cardPosting);
-
-                await _context.SaveChangesAsync();
-
-                if (cardPosting.ExpenseId.HasValue)
-                    await _expenseService.AjustarValorComBaseNaCategoria(cardPosting.ExpenseId.Value);
+                await PostCardsPostingsCoreAsync(cardPosting);
 
                 await transaction.CommitAsync();
             }
@@ -440,7 +553,88 @@ namespace BudgetAPI.Services
             }
         }
 
+        private async Task PostCardsPostingsCoreAsync(CardsPostings cardPosting)
+        {
+            await FinancialResourceValidator.ValidateCardForCreateAsync(
+                _context,
+                _user.Id,
+                cardPosting.CardId);
+
+            // Se a pessoa já existe...
+            if (_context.People.FirstOrDefault(p => p.Id == cardPosting.PeopleId && p.UserId == _user.Id) != null)
+            {
+                cardPosting.People = null;
+            }
+
+            cardPosting.Position = (short)((_context.CardsPostings.Where(c => c.Reference == cardPosting.Reference && c.CardId == cardPosting.CardId && c.Card!.UserId == _user.Id)
+                                                                  .Max(c => c.Position) ?? 0) + 1);
+
+            _context.CardsPostings.Add(cardPosting);
+
+            await _context.SaveChangesAsync();
+
+            if (cardPosting.ExpenseId.HasValue)
+                await _expenseService.AjustarValorComBaseNaCategoria(cardPosting.ExpenseId.Value);
+        }
+
         public async Task PostCardsPostingsWithParcels(CardsPostings cardPosting, bool repeat, int qtyMonths)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                await PostCardsPostingsWithParcelsCoreAsync(cardPosting, repeat, qtyMonths);
+
+                await transaction.CommitAsync();
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                throw new Exception($"Erro no CardPostingService.PostCardsPostingsWithParcels: {ex.Message}", ex);
+            }
+        }
+
+        private async Task PostCardsPostingsWithParcelsCoreAsync(CardsPostings cardPosting, bool repeat, int qtyMonths)
+        {
+            await FinancialResourceValidator.ValidateCardForCreateAsync(
+                _context,
+                _user.Id,
+                cardPosting.CardId);
+
+            List<CardsPostings>? cardsPostingsList = repeat ?
+                                                     RepeatCardsPostings(cardPosting, qtyMonths) :
+                                                     GenerateCardsPostings(cardPosting);
+
+            CardsPostings? firstCardsPostings = null;
+
+            foreach (CardsPostings cp in cardsPostingsList)
+            {
+                if (firstCardsPostings == null)
+                    cp.ExpenseId = cardPosting.ExpenseId;
+
+                _context.CardsPostings.Add(cp);
+
+                await _context.SaveChangesAsync();
+
+                if (firstCardsPostings == null)
+                {
+                    firstCardsPostings = cp;
+
+                    cardPosting.Id     = cp.Id;
+                    cardPosting.Amount = cp.Amount;
+                }
+                else
+                {
+                    cp.RelatedId = firstCardsPostings.Id;
+                    await _context.SaveChangesAsync();
+                }
+            }
+
+            if (cardPosting.ExpenseId.HasValue)
+                await _expenseService.AjustarValorComBaseNaCategoria(cardPosting.ExpenseId.Value);
+        }
+
+        public async Task PostCardsPostingsFromNotification(CardsPostings cardPosting)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
 
@@ -451,44 +645,128 @@ namespace BudgetAPI.Services
                     _user.Id,
                     cardPosting.CardId);
 
-                List<CardsPostings>? cardsPostingsList = repeat ?
-                                                         RepeatCardsPostings(cardPosting, qtyMonths) :
-                                                         GenerateCardsPostings(cardPosting);
+                cardPosting.Provisioned = false;
 
-                CardsPostings? firstCardsPostings = null;
+                CardsPostings? provisioned = await FindProvisionedPostingAsync(cardPosting);
 
-                foreach (CardsPostings cp in cardsPostingsList)
+                if (provisioned == null)
                 {
-                    if (firstCardsPostings == null)
-                        cp.ExpenseId = cardPosting.ExpenseId;
+                    await PostCardsPostingsCoreAsync(cardPosting);
+                }
+                else
+                {
+                    int? previousExpenseId = provisioned.ExpenseId;
 
-                    _context.CardsPostings.Add(cp);
+                    ApplyNotificationToProvisioned(provisioned, cardPosting);
+
+                    _context.Entry(provisioned).State = EntityState.Modified;
 
                     await _context.SaveChangesAsync();
 
-                    if (firstCardsPostings == null)
-                    {
-                        firstCardsPostings = cp;
-
-                        cardPosting.Id     = cp.Id;
-                        cardPosting.Amount = cp.Amount;
-                    }
-                    else
-                    {
-                        cp.RelatedId = firstCardsPostings.Id;
-                        await _context.SaveChangesAsync();
-                    }
+                    await AjustarDespesasVinculadas(previousExpenseId, provisioned.ExpenseId);
                 }
-
-                if (cardPosting.ExpenseId.HasValue)
-                    await _expenseService.AjustarValorComBaseNaCategoria(cardPosting.ExpenseId.Value);
 
                 await transaction.CommitAsync();
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                throw new Exception($"Erro no CardPostingService.PostCardsPostingsWithParcels: {ex.Message}", ex);
+                throw new Exception($"Erro no CardPostingService.PostCardsPostingsFromNotification: {ex.Message}", ex);
+            }
+        }
+
+        public async Task PostCardsPostingsWithParcelsFromNotification(CardsPostings cardPosting, bool repeat, int qtyMonths)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                await FinancialResourceValidator.ValidateCardForCreateAsync(_context, _user.Id, cardPosting.CardId);
+
+                cardPosting.Provisioned = false;
+
+                CardsPostings? provisioned = await FindProvisionedPostingAsync(cardPosting);
+
+                if (provisioned == null)
+                {
+                    await PostCardsPostingsWithParcelsCoreAsync(cardPosting, repeat, qtyMonths);
+                }
+                else
+                {
+                    int? previousExpenseId = provisioned.ExpenseId;
+                    int rootId = provisioned.RelatedId ?? provisioned.Id;
+
+                    bool hasSequence = provisioned.RelatedId.HasValue ||
+                               await _context.CardsPostings.AnyAsync(cp => cp.Card!.UserId == _user.Id &&
+                                                                          cp.Id != provisioned.Id &&
+                                                                          cp.RelatedId == rootId);
+
+                    ApplyNotificationToProvisioned(provisioned, cardPosting);
+
+                    List<CardsPostings> generatedPostings = repeat
+                        ? RepeatCardsPostings(cardPosting, qtyMonths)
+                        : GenerateCardsPostings(cardPosting);
+
+                    CardsPostings? currentGeneratedPosting = generatedPostings.FirstOrDefault();
+
+                    if (currentGeneratedPosting == null)
+                        throw new InvalidOperationException("Não foi possível gerar o lançamento atual da notificação.");
+
+                    provisioned.Date         = currentGeneratedPosting.Date;
+                    provisioned.Reference    = currentGeneratedPosting.Reference;
+                    provisioned.Amount       = currentGeneratedPosting.Amount;
+                    provisioned.TotalAmount  = currentGeneratedPosting.TotalAmount ?? cardPosting.TotalAmount ?? provisioned.Amount;
+                    provisioned.ParcelNumber = currentGeneratedPosting.ParcelNumber;
+                    provisioned.Parcels      = currentGeneratedPosting.Parcels;
+                    provisioned.IsPaid       = currentGeneratedPosting.IsPaid ?? provisioned.IsPaid;
+                    provisioned.DueDate      = currentGeneratedPosting.DueDate ?? provisioned.DueDate;
+                    provisioned.Provisioned  = false;
+
+                    _context.Entry(provisioned).State = EntityState.Modified;
+
+                    if (!hasSequence)
+                    {
+                        foreach (CardsPostings generatedPosting in generatedPostings.Skip(1))
+                        {
+                            generatedPosting.RelatedId = rootId;
+                            generatedPosting.ExpenseId = null;
+                            generatedPosting.Provisioned = false;
+
+                            _context.CardsPostings.Add(generatedPosting);
+                        }
+                    }
+
+                    await _context.SaveChangesAsync();
+
+                    await AjustarDespesasVinculadas(previousExpenseId, provisioned.ExpenseId);
+
+                    cardPosting.Id           = provisioned.Id;
+                    cardPosting.Date         = provisioned.Date;
+                    cardPosting.Reference    = provisioned.Reference;
+                    cardPosting.Position     = provisioned.Position;
+                    cardPosting.Description  = provisioned.Description;
+                    cardPosting.Amount       = provisioned.Amount;
+                    cardPosting.TotalAmount  = provisioned.TotalAmount;
+                    cardPosting.ParcelNumber = provisioned.ParcelNumber;
+                    cardPosting.Parcels      = provisioned.Parcels;
+                    cardPosting.PeopleId     = provisioned.PeopleId;
+                    cardPosting.CategoryId   = provisioned.CategoryId;
+                    cardPosting.ExpenseId    = provisioned.ExpenseId;
+                    cardPosting.Fixed        = provisioned.Fixed;
+                    cardPosting.DueDate      = provisioned.DueDate;
+                    cardPosting.IsPaid       = provisioned.IsPaid;
+                    cardPosting.Note         = provisioned.Note;
+                    cardPosting.Others       = provisioned.Others;
+                    cardPosting.RelatedId    = provisioned.RelatedId;
+                    cardPosting.Provisioned  = false;
+                }
+
+                await transaction.CommitAsync();
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                throw new Exception($"Erro no CardPostingService.PostCardsPostingsWithParcelsFromNotification: {ex.Message}", ex);
             }
         }
 

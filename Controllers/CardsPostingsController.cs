@@ -186,6 +186,58 @@ namespace BudgetAPI.Controllers
             }
         }
 
+        [HttpPost("FromNotification")]
+        public async Task<ActionResult<CardsPostingsDTO?>> PostCardsPostingsFromNotification(CardsPostings cardsPostings)
+        {
+            if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId))
+            {
+                return BadRequest();
+            }
+
+            try
+            {
+                await _cardPostingService.PostCardsPostingsFromNotification(cardsPostings);
+
+                return await GetCardsPostings(cardsPostings.Id);
+            }
+            catch (Exception ex)
+            {
+                if (ex.InnerException?.Message?.Contains("ExpenseService") == true ||
+                    ex.Message.Contains("ExpenseService"))
+                {
+                    return Problem($"Erro ao vincular lançamento à despesa: {ex.Message}");
+                }
+
+                return Problem($"Erro ao transformar notificação em lançamento: {ex.Message}");
+            }
+        }
+
+        [HttpPost("FromNotification/AllParcels")]
+        public async Task<ActionResult<CardsPostingsDTO?>> PostCardsPostingsWithParcelsFromNotification(CardsPostings cardsPostings, bool repeat, int qtyMonths)
+        {
+            if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId))
+            {
+                return BadRequest();
+            }
+
+            try
+            {
+                await _cardPostingService.PostCardsPostingsWithParcelsFromNotification(cardsPostings, repeat, qtyMonths);
+
+                return await GetCardsPostings(cardsPostings.Id);
+            }
+            catch (Exception ex)
+            {
+                if (ex.InnerException?.Message?.Contains("ExpenseService") == true ||
+                    ex.Message.Contains("ExpenseService"))
+                {
+                    return Problem($"Erro ao vincular lançamento parcelado à despesa: {ex.Message}");
+                }
+
+                return Problem($"Erro ao transformar notificação parcelada em lançamento: {ex.Message}");
+            }
+        }
+
         [HttpPost("AllParcels")]
         public async Task<ActionResult<CardsPostingsDTO?>> PostCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths)
         {

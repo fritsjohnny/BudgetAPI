@@ -13,7 +13,10 @@ namespace BudgetAPI.Services
         IQueryable<IncomesDTO> GetIncomes(string reference);
         IQueryable<IncomesDTO> GetMyIncomes(string reference);
         IQueryable<IncomesDTO2> GetIncomesComboList(string reference);
-        Task<int> PutIncomes(Incomes incomes, bool repeatToNextMonths = false);
+        Task<int> PutIncomes(
+            Incomes incomes,
+            bool repeatToNextMonths = false,
+            bool preserveFutureValues = false);
         Task PutIncomesAllParcels(Incomes incomes);
         Task PutIncomesWithParcels(Incomes incomes, int qtyMonths);
         Task<int> SetPositions(List<Incomes> incomes);
@@ -90,7 +93,10 @@ namespace BudgetAPI.Services
             return incomes;
         }
 
-        public async Task<int> PutIncomes(Incomes income, bool repeatToNextMonths = false)
+        public async Task<int> PutIncomes(
+            Incomes income,
+            bool repeatToNextMonths = false,
+            bool preserveFutureValues = false)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
 
@@ -123,25 +129,55 @@ namespace BudgetAPI.Services
                     income.TotalToReceive = income.ToReceive;
                 }
 
-                bool preserveFutureIncomeValues = IsYieldIncome(income);
+                bool preserveFutureIncomeValues =
+                    preserveFutureValues ||
+                    IsYieldIncome(income);
 
                 if (repeatToNextMonths && !preserveFutureIncomeValues)
                 {
                     income.ToReceive = GetFutureToReceive(income, income);
                 }
 
+                if (repeatToNextMonths &&
+                    savedIncome.Parcels.GetValueOrDefault() > 1 &&
+                    (
+                        income.ParcelNumber != savedIncome.ParcelNumber ||
+                        income.Parcels != savedIncome.Parcels ||
+                        income.Reference != savedIncome.Reference
+                    ))
+                {
+                    throw new InvalidOperationException(
+                        "Não é permitido alterar a referência, o número da parcela ou o total de parcelas ao repetir a edição.");
+                }
+
+                income.RelatedId = savedIncome.RelatedId;
+
                 _context.Entry(income).State = EntityState.Modified;
 
                 if (repeatToNextMonths)
                 {
-                    List<Incomes> futureIncomes = await _context.Incomes.Where(i =>
-                                                                       i.UserId == _user.Id &&
-                                                                       i.Id != income.Id &&
-                                                                       i.Received == 0 &&
-                                                                       i.Description != null &&
-                                                                       i.Description.Trim() == originalDescription &&
-                                                                       string.Compare(i.Reference, originalReference) > 0)
-                                                                .ToListAsync();
+                    int relatedId      = savedIncome.RelatedId ?? savedIncome.Id;
+                    bool isInstallment = savedIncome.Parcels.GetValueOrDefault() > 1;
+
+                    List<Incomes> futureIncomes = await _context.Incomes
+                        .Where(i =>
+                            i.UserId == _user.Id &&
+                            i.Id != income.Id &&
+                            i.Received == 0 &&
+                            string.Compare(i.Reference, originalReference) > 0 &&
+                            (
+                                isInstallment
+                                    ? (
+                                        i.RelatedId == relatedId &&
+                                        i.ParcelNumber > savedIncome.ParcelNumber &&
+                                        i.Parcels == savedIncome.Parcels
+                                    )
+                                    : (
+                                        i.Description != null &&
+                                        i.Description.Trim() == originalDescription
+                                    )
+                            ))
+                        .ToListAsync();
 
                     foreach (Incomes item in futureIncomes)
                     {
