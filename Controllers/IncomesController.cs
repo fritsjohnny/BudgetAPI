@@ -123,10 +123,7 @@ namespace BudgetAPI.Controllers
                     return BadRequest();
                 }
 
-                await Task.Run(() =>
-                {
-                    _incomeService.PutIncomesWithParcels(income, qtyMonths);
-                });
+                await _incomeService.PutIncomesWithParcels(income, qtyMonths);
 
                 return Ok();
             }
@@ -196,10 +193,7 @@ namespace BudgetAPI.Controllers
         {
             try
             {
-                await Task.Run(() =>
-                {
-                    _incomeService.PostIncomesWithParcels(income, qtyMonths);
-                });
+                await _incomeService.PostIncomesWithParcels(income, qtyMonths);
 
                 return await GetIncomesDTO(income.Id);
             }

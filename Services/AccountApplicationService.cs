@@ -1,5 +1,6 @@
 ﻿using BudgetAPI.Data;
 using BudgetAPI.Models;
+using BudgetAPI.Helpers;
 using Microsoft.EntityFrameworkCore;
 
 namespace BudgetAPI.Services
@@ -74,11 +75,16 @@ namespace BudgetAPI.Services
             return query;
         }
 
-        public Task<int> PostApplication(AccountsApplications application)
+        public async Task<int> PostApplication(AccountsApplications application)
         {
             // segurança: não deixa criar para conta que não pertence ao usuário
             if (!ValidateAccountOwnership(application.AccountId))
                 throw new UnauthorizedAccessException("Conta não pertence ao usuário.");
+
+            await FinancialResourceValidator.ValidateAccountForCreateAsync(
+                _context,
+                _user.Id,
+                application.AccountId);
 
             // CreatedAt é setado no ctor do DTO, mas reforço caso venha default
             if (application.CreatedAt == default(DateTime))
@@ -86,18 +92,45 @@ namespace BudgetAPI.Services
 
             _context.Set<AccountsApplications>().Add(application);
 
-            return _context.SaveChangesAsync();
+            return await _context.SaveChangesAsync();
         }
 
-        public Task<int> PutApplication(AccountsApplications application)
+        public async Task<int> PutApplication(AccountsApplications application)
         {
-            // valida propriedade do usuário sobre a conta alvo
-            if (!ValidateAccountOwnership(application.AccountId))
-                throw new UnauthorizedAccessException("Conta não pertence ao usuário.");
+            AccountsApplications? saved =
+                await _context.Set<AccountsApplications>()
+                    .Join(
+                        _context.Accounts,
+                        app => app.AccountId,
+                        account => account.Id,
+                        (app, account) => new
+                        {
+                            Application = app,
+                            Account = account
+                        })
+                    .Where(x =>
+                        x.Application.Id == application.Id &&
+                        x.Account.UserId == _user.Id)
+                    .Select(x => x.Application)
+                    .FirstOrDefaultAsync();
 
-            _context.Entry(application).State = EntityState.Modified;
+            if (saved == null)
+            {
+                throw new InvalidOperationException(
+                    "Aplicação financeira não encontrada para o usuário atual.");
+            }
 
-            return _context.SaveChangesAsync();
+            await FinancialResourceValidator.ValidateAccountForUpdateAsync(
+                _context,
+                _user.Id,
+                saved.AccountId,
+                application.AccountId);
+
+            _context.Entry(saved)
+                .CurrentValues
+                .SetValues(application);
+
+            return await _context.SaveChangesAsync();
         }
 
         public Task<int> DeleteApplication(AccountsApplications application)
@@ -118,12 +151,13 @@ namespace BudgetAPI.Services
 
             // Verifica todas as contas envolvidas pertencem ao usuário
             IEnumerable<int> accountIds = applications.Select(a => a.AccountId).Distinct();
-            bool allOwned = _context.Accounts
-                                    .Where(a => accountIds.Contains(a.Id))
-                                    .All(a => a.UserId == _user.Id);
+            var accounts = _context.Accounts.Where(a => accountIds.Contains(a.Id) && a.UserId == _user.Id).ToList();
 
-            if (!allOwned)
+            if (accounts.Count != accountIds.Count())
                 throw new UnauthorizedAccessException("Uma ou mais contas não pertencem ao usuário.");
+
+            if (accounts.Any(a => a.Disabled == true))
+                throw new InvalidOperationException("Uma ou mais contas alvo estão desativadas. Não é permitido inserir aplicações em conta desativada.");
 
             foreach (AccountsApplications app in applications)
             {

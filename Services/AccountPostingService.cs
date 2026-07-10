@@ -1,5 +1,6 @@
 ﻿using BudgetAPI.Data;
 using BudgetAPI.Models;
+using BudgetAPI.Helpers;
 using Microsoft.EntityFrameworkCore;
 
 namespace BudgetAPI.Services
@@ -76,21 +77,35 @@ namespace BudgetAPI.Services
             return (descOrigin, descDestination);
         }
 
-        public Task<int> PutAccountsPostings(AccountsPostings accountsPostings)
+        public async Task<int> PutAccountsPostings(AccountsPostings accountsPostings)
         {
             if (IsTransfer(accountsPostings))
             {
-                return UpdateTransferBetweenAccounts(accountsPostings);
+                return await UpdateTransferBetweenAccounts(accountsPostings);
             }
 
-            AccountsPostings? entity = _context.AccountsPostings.Find(accountsPostings.Id);
+            AccountsPostings? entity = await _context.AccountsPostings.Include(a => a.Account)
+                                                                          .Where(a => a.Id == accountsPostings.Id && a.Account!.UserId == _user.Id)
+                                                                          .FirstOrDefaultAsync();
 
             if (entity == null)
                 throw new Exception("Lançamento não encontrado.");
 
+            // Se trocou a conta, exige que a nova conta pertença ao usuário e esteja ativa
+            if (entity.AccountId != accountsPostings.AccountId)
+            {
+                var newAccount = await _context.Accounts.FirstOrDefaultAsync(a => a.Id == accountsPostings.AccountId && a.UserId == _user.Id);
+
+                if (newAccount == null)
+                    throw new ArgumentException("Conta inválida para o usuário atual.");
+
+                if (newAccount.Disabled == true)
+                    throw new InvalidOperationException($"Não é permitido alterar o lançamento para a conta desativada '{newAccount.Name}'.");
+            }
+
             _context.Entry(entity).CurrentValues.SetValues(accountsPostings);
 
-            return _context.SaveChangesAsync();
+            return await _context.SaveChangesAsync();
         }
 
         private async Task<int> UpdateTransferBetweenAccounts(AccountsPostings request)
@@ -158,10 +173,26 @@ namespace BudgetAPI.Services
             if (fromAccount == null || toAccount == null) throw new ArgumentException("Conta de origem e/ou conta de destino não encontrada.");
             if (fromAccount.UserId != _user.Id || toAccount.UserId != _user.Id) throw new ArgumentException("Não é permitido transferir entre contas de usuários diferentes.");
 
+
+
             // Validação de saldo corrigida
             decimal oldAmount = Math.Abs(origin.Amount);
             int oldFromAccountId = origin.AccountId;
             int newFromAccountId = requestedFromAccountId;
+
+            // Se houve troca de conta de origem ou destino, exige que a nova conta esteja ativa
+            if (oldFromAccountId != newFromAccountId)
+            {
+                if (fromAccount.Disabled == true)
+                    throw new InvalidOperationException($"Não é permitido alterar a transferência para a conta desativada '{fromAccount.Name}'.");
+            }
+
+            int oldToAccountId = destination.AccountId;
+            if (oldToAccountId != requestedToAccountId)
+            {
+                if (toAccount.Disabled == true)
+                    throw new InvalidOperationException($"Não é permitido alterar a transferência para a conta desativada '{toAccount.Name}'.");
+            }
 
             // Se mudou a conta de origem, valida ambas
             if (oldFromAccountId != newFromAccountId)
@@ -246,6 +277,15 @@ namespace BudgetAPI.Services
                 return await TransferBetweenAccounts(accountsPostings);
             }
 
+            // inclusão exige conta ativa
+            var acc = await _context.Accounts.FirstOrDefaultAsync(a => a.Id == accountsPostings.AccountId && a.UserId == _user.Id);
+
+            if (acc == null)
+                throw new ArgumentException("Conta inválida para o usuário atual.");
+
+            if (acc.Disabled == true)
+                throw new InvalidOperationException($"Não é permitido incluir registros na conta desativada '{acc.Name}'.");
+
             accountsPostings.Position = (short)((_context.AccountsPostings.Where(o => o.Reference == accountsPostings.Reference).Max(o => o.Position) ?? 0) + 1);
 
             _context.AccountsPostings.Add(accountsPostings);
@@ -321,9 +361,26 @@ namespace BudgetAPI.Services
 
         public Task<int> SetPositions(List<AccountsPostings> accountsPostings)
         {
-            foreach (AccountsPostings accountPosting in accountsPostings)
+            // Atualizar apenas o campo Position de lançamentos já existentes e pertencentes ao usuário
+            List<int> ids = accountsPostings.Select(a => a.Id).Distinct().ToList();
+
+            List<AccountsPostings> savedPostings = _context.AccountsPostings
+                                                      .Where(a => ids.Contains(a.Id) && a.Account!.UserId == _user.Id)
+                                                      .ToList();
+
+            if (savedPostings.Count != ids.Count)
             {
-                _context.Entry(accountPosting).State = EntityState.Modified;
+                throw new Exception("Erro no AccountPostingService.SetPositions: existem lançamentos inválidos para o usuário atual.");
+            }
+
+            foreach (AccountsPostings saved in savedPostings)
+            {
+                AccountsPostings? request = accountsPostings.FirstOrDefault(a => a.Id == saved.Id);
+
+                if (request != null)
+                {
+                    saved.Position = request.Position;
+                }
             }
 
             return _context.SaveChangesAsync();
@@ -364,6 +421,13 @@ namespace BudgetAPI.Services
 
             if (fromAccount == null || toAccount == null) throw new ArgumentException("Conta de origem e/ou conta de destino não encontrada.");
             if (fromAccount.UserId != _user.Id || toAccount.UserId != _user.Id) throw new ArgumentException("Não é permitido transferir entre contas de usuários diferentes.");
+
+            // inclusão de transferência exige que ambas as contas estejam ativas
+            if (fromAccount.Disabled == true)
+                throw new InvalidOperationException($"Não é permitido incluir registros na conta desativada '{fromAccount.Name}'.");
+
+            if (toAccount.Disabled == true)
+                throw new InvalidOperationException($"Não é permitido incluir registros na conta desativada '{toAccount.Name}'.");
 
             AccountsDTO? fromTotals = null;
 
@@ -462,7 +526,11 @@ namespace BudgetAPI.Services
         {
             if (accountPostingId == 0) throw new ArgumentNullException("Dados do lançamento não informados.");
 
-            AccountsPostings? posting = await _context.AccountsPostings.FirstOrDefaultAsync(x => x.Id == accountPostingId);
+            AccountsPostings? posting = await _context.AccountsPostings
+                .Include(ap => ap.Account)
+                .FirstOrDefaultAsync(ap =>
+                    ap.Id == accountPostingId &&
+                    ap.Account!.UserId == _user.Id);
 
             if (posting == null)
                 throw new ArgumentException("Lançamento não encontrado no banco.");
@@ -471,6 +539,16 @@ namespace BudgetAPI.Services
                 return posting.CardReceiptId.Value;
 
             if (posting.Type != "R") throw new ArgumentException("Apenas lançamentos do tipo 'R' podem gerar um comprovante de cartão.");
+
+            await FinancialResourceValidator.ValidateCardForCreateAsync(
+                _context,
+                _user.Id,
+                cardId);
+
+            await FinancialResourceValidator.ValidateAccountForCreateAsync(
+                _context,
+                _user.Id,
+                posting.AccountId);
 
             int? existingId = await _context.CardsReceipts.AsNoTracking()
                                                   .Where(x => x.Reference == posting.Reference
@@ -490,6 +568,20 @@ namespace BudgetAPI.Services
 
             try
             {
+                // valida cartão e conta antes de criar o recebimento
+                Cards? card = await _context.Cards.FirstOrDefaultAsync(c => c.Id == cardId && c.UserId == _user.Id);
+                if (card == null)
+                    throw new ArgumentException("Cartão inválido para o usuário atual.");
+
+                if (card.Disabled == true)
+                    throw new InvalidOperationException($"Não é permitido incluir registros no cartão desativado '{card.Name}'.");
+
+                Accounts? account = await _context.Accounts.FirstOrDefaultAsync(a => a.Id == posting.AccountId && a.UserId == _user.Id);
+                if (account == null)
+                    throw new ArgumentException("Conta inválida para o usuário atual.");
+
+                if (account.Disabled == true)
+                    throw new InvalidOperationException($"Não é permitido incluir registros na conta desativada '{account.Name}'.");
 
                 CardsReceipts cardReceipt = new CardsReceipts
                 {

@@ -1,6 +1,7 @@
 ﻿using BudgetAPI.Data;
 using BudgetAPI.Models;
 using Microsoft.EntityFrameworkCore;
+using BudgetAPI.Helpers;
 
 namespace BudgetAPI.Services
 {
@@ -41,18 +42,47 @@ namespace BudgetAPI.Services
 			return card;
 		}
 
-		public Task<int> PutCardReceipt(CardsReceipts cardReceipt)
+		public async Task<int> PutCardReceipt(CardsReceipts cardReceipt)
 		{
-			_context.Entry(cardReceipt).State = EntityState.Modified;
+			CardsReceipts? saved = await _context.CardsReceipts
+				.Include(c => c.Card)
+				.Where(c =>
+					c.Id == cardReceipt.Id &&
+					c.Card!.UserId == _user.Id)
+				.FirstOrDefaultAsync();
 
-			return _context.SaveChangesAsync();
+			if (saved == null)
+			{
+				throw new InvalidOperationException(
+					"Comprovante de cartão não encontrado para o usuário atual.");
+			}
+
+			await FinancialResourceValidator.ValidateResourcesForUpdateAsync(
+				_context,
+				_user.Id,
+				saved.CardId,
+				cardReceipt.CardId,
+				saved.AccountId,
+				cardReceipt.AccountId);
+
+			_context.Entry(saved)
+				.CurrentValues
+				.SetValues(cardReceipt);
+
+			return await _context.SaveChangesAsync();
 		}
 
-		public Task<int> PostCardReceipt(CardsReceipts cardReceipt)
+		public async Task<int> PostCardReceipt(CardsReceipts cardReceipt)
 		{
+			await FinancialResourceValidator.ValidateResourcesForCreateAsync(
+				_context,
+				_user.Id,
+				cardReceipt.CardId,
+				cardReceipt.AccountId);
+
 			_context.CardsReceipts.Add(cardReceipt);
 
-			return _context.SaveChangesAsync();
+			return await _context.SaveChangesAsync();
 		}
 
 		public Task<int> DeleteCardReceipt(CardsReceipts cardReceipt)

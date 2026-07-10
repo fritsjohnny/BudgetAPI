@@ -162,10 +162,7 @@ namespace BudgetAPI.Controllers
                     return BadRequest();
                 }
 
-                await Task.Run(() =>
-                {
-                    _expenseService.PutExpensesWithParcels(expenses, repeat, qtyMonths);
-                });
+                await _expenseService.PutExpensesWithParcels(expenses, repeat, qtyMonths);
 
                 return Ok();
             }
@@ -219,10 +216,7 @@ namespace BudgetAPI.Controllers
         {
             try
             {
-                await Task.Run(() =>
-                {
-                    _expenseService.PostExpensesWithParcels(expense, repeat, qtyMonths);
-                });
+                await _expenseService.PostExpensesWithParcels(expense, repeat, qtyMonths);
 
                 return await GetExpensesDTO(expense.Id);
             }

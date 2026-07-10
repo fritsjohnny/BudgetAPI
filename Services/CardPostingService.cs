@@ -191,6 +191,8 @@ namespace BudgetAPI.Services
 
             try
             {
+                // Validação de cartão em edição: permite manter o mesmo cartão mesmo desativado;
+                // se o CardId foi alterado, exige que o novo cartão exista, pertença ao usuário e esteja ativo.
                 CardsPostings? savedCardPosting = await _context.CardsPostings
                     .AsNoTracking()
                     .Where(cp => cp.Id == cardPosting.Id && cp.Card!.UserId == _user.Id)
@@ -201,10 +203,11 @@ namespace BudgetAPI.Services
                     throw new Exception("Lançamento de cartão não encontrado para o usuário atual.");
                 }
 
-                if (!ValidateCardAndUser(cardPosting.CardId))
-                {
-                    throw new Exception("Erro no CardPostingService: cartão inválido para o usuário atual.");
-                }
+                await FinancialResourceValidator.ValidateCardForUpdateAsync(
+                    _context,
+                    _user.Id,
+                    savedCardPosting.CardId,
+                    cardPosting.CardId);
 
                 List<int?> expenseIdsToAdjust = new()
                 {
@@ -254,6 +257,12 @@ namespace BudgetAPI.Services
 
                     foreach (CardsPostings item in futurePostings)
                     {
+                        await FinancialResourceValidator.ValidateCardForUpdateAsync(
+                            _context,
+                            _user.Id,
+                            item.CardId,
+                            cardPosting.CardId);
+
                         item.CardId      = cardPosting.CardId;
                         item.Date        = isInstallment ? cardPosting.Date : ReferenceDateHelper.GetProportionalDate(cardPosting.Date, savedCardPosting.Reference!, item.Reference!);
                         item.DueDate     = ReferenceDateHelper.GetProportionalDate(cardPosting.DueDate, savedCardPosting.Reference!, item.Reference!);
@@ -326,12 +335,11 @@ namespace BudgetAPI.Services
                         "Não é permitido gerar novamente as demais parcelas.");
                 }
 
-                if (!ValidateCardAndUser(cardPosting.CardId))
-                {
-                    throw new Exception(
-                        "Erro no CardPostingService.PutCardsPostingsWithParcels: " +
-                        "cartão inválido para o usuário atual.");
-                }
+                await FinancialResourceValidator.ValidateCardForUpdateAsync(
+                    _context,
+                    _user.Id,
+                    savedCardPosting.CardId,
+                    cardPosting.CardId);
 
                 _context.Entry(cardPosting).State =
                     EntityState.Modified;
@@ -343,6 +351,17 @@ namespace BudgetAPI.Services
                             qtyMonths)
                         : GenerateCardsPostings(
                             cardPosting);
+
+                bool createsNewRecords =
+                    cardsPostingsList.Skip(1).Any();
+
+                if (createsNewRecords)
+                {
+                    await FinancialResourceValidator.ValidateCardForCreateAsync(
+                        _context,
+                        _user.Id,
+                        cardPosting.CardId);
+                }
 
                 CardsPostings? currentGeneratedPosting =
                     cardsPostingsList.FirstOrDefault();
@@ -390,10 +409,10 @@ namespace BudgetAPI.Services
 
             try
             {
-                if (!ValidateCardAndUser(cardPosting.CardId))
-                {
-                    throw new Exception("Erro no CardPostingService.PostCardsPostings: cartão inválido para o usuário atual.");
-                }
+                await FinancialResourceValidator.ValidateCardForCreateAsync(
+                    _context,
+                    _user.Id,
+                    cardPosting.CardId);
 
                 // Se a pessoa já existe...
                 if (_context.People.FirstOrDefault(p => p.Id == cardPosting.PeopleId && p.UserId == _user.Id) != null)
@@ -426,10 +445,10 @@ namespace BudgetAPI.Services
 
             try
             {
-                if (!ValidateCardAndUser(cardPosting.CardId))
-                {
-                    throw new Exception("Erro no CardPostingService.PostCardsPostingsWithParcels: cartão inválido para o usuário atual.");
-                }
+                await FinancialResourceValidator.ValidateCardForCreateAsync(
+                    _context,
+                    _user.Id,
+                    cardPosting.CardId);
 
                 List<CardsPostings>? cardsPostingsList = repeat ?
                                                          RepeatCardsPostings(cardPosting, qtyMonths) :

@@ -18,11 +18,11 @@ namespace BudgetAPI.Services
         IQueryable<ExpensesByCategories> GetExpensesByCategories(string reference, int cardId);
         ExpensesByCategories GetExpensesAndCardPostingsByCategoryId(int? id, string reference, int cardId);
         Task<int> PutExpenses(Expenses expenses, bool repeatToNextMonths = false);
-        void PutExpensesWithParcels(Expenses expenses, bool repeat, int qtyMonths);
+        Task PutExpensesWithParcels(Expenses expenses, bool repeat, int qtyMonths);
         Task<int> SetPositions(List<Expenses> expenses);
         Task<int> AddValue(Expenses expense, decimal value);
         Task<int> PostExpenses(Expenses expense);
-        void PostExpensesWithParcels(Expenses expenses, bool repeat, int qtyMonths);
+        Task PostExpensesWithParcels(Expenses expenses, bool repeat, int qtyMonths);
         Task<int> DeleteExpenses(Expenses expense);
         bool ExpensesExists(int id);
         bool ValidarUsuario(int expenseId);
@@ -203,6 +203,14 @@ namespace BudgetAPI.Services
                     throw new Exception("Despesa não encontrada para o usuário atual.");
                 }
 
+                await FinancialResourceValidator.ValidateResourcesForUpdateAsync(
+                    _context,
+                    _user.Id,
+                    savedExpense.CardId,
+                    expense.CardId,
+                    savedExpense.AccountId,
+                    expense.AccountId);
+
                 string originalDescription = (savedExpense.Description ?? string.Empty).Trim();
                 string originalReference   = savedExpense.Reference;
 
@@ -228,21 +236,31 @@ namespace BudgetAPI.Services
 
                     foreach (Expenses item in futureExpenses)
                     {
-                        item.Description   = expense.Description;
-                        item.ToPay         = GetFutureToPay(expense, item);
-                        item.TotalToPay    = expense.TotalToPay;
-                        item.Note          = expense.Note;
-                        item.CardId        = expense.CardId;
-                        item.AccountId     = expense.AccountId;
-                        item.DueDate       = GetFutureDueDate(expense, savedExpense.Reference, item.Reference);
-                        item.CategoryId    = expense.CategoryId;
-                        item.Scheduled     = expense.Scheduled;
-                        item.PeopleId      = expense.PeopleId;
-                        item.DueDay        = expense.DueDay;
-                        item.ExpectedValue = expense.ExpectedValue;
-                        item.Fixed         = expense.Fixed;
+                        await FinancialResourceValidator.ValidateResourcesForUpdateAsync(
+                            _context,
+                            _user.Id,
+                            item.CardId,
+                            expense.CardId,
+                            item.AccountId,
+                            expense.AccountId);
 
-                        _context.Entry(item).State = EntityState.Modified;
+                        item.Description = expense.Description;
+                        item.ToPay = GetFutureToPay(expense, item);
+                        item.TotalToPay = expense.TotalToPay;
+                        item.Note = expense.Note;
+                        item.CardId = expense.CardId;
+                        item.AccountId = expense.AccountId;
+                        item.DueDate = GetFutureDueDate(
+                            expense,
+                            savedExpense.Reference,
+                            item.Reference);
+
+                        item.CategoryId = expense.CategoryId;
+                        item.Scheduled = expense.Scheduled;
+                        item.PeopleId = expense.PeopleId;
+                        item.DueDay = expense.DueDay;
+                        item.ExpectedValue = expense.ExpectedValue;
+                        item.Fixed = expense.Fixed;
                     }
                 }
 
@@ -259,7 +277,7 @@ namespace BudgetAPI.Services
             }
         }
 
-        public void PutExpensesWithParcels(Expenses expenses, bool repeat, int qtyMonths)
+        public async Task PutExpensesWithParcels(Expenses expenses, bool repeat, int qtyMonths)
         {
             Expenses? savedExpense = _context.Expenses
                 .AsNoTracking()
@@ -292,6 +310,14 @@ namespace BudgetAPI.Services
                     "Não é permitido gerar novamente as demais parcelas.");
             }
 
+            await FinancialResourceValidator.ValidateResourcesForUpdateAsync(
+                _context,
+                _user.Id,
+                savedExpense.CardId,
+                expenses.CardId,
+                savedExpense.AccountId,
+                expenses.AccountId);
+
             _context.Entry(expenses).State =
                 EntityState.Modified;
 
@@ -299,6 +325,18 @@ namespace BudgetAPI.Services
                 repeat
                     ? RepeatExpenses(expenses, qtyMonths)
                     : GenerateExpenses(expenses);
+
+            bool createsNewRecords =
+                expensesList.Skip(1).Any();
+
+            if (createsNewRecords)
+            {
+                await FinancialResourceValidator.ValidateResourcesForCreateAsync(
+                    _context,
+                    _user.Id,
+                    expenses.CardId,
+                    expenses.AccountId);
+            }
 
             Expenses? currentGeneratedExpense =
                 expensesList.FirstOrDefault();
@@ -314,14 +352,31 @@ namespace BudgetAPI.Services
                 _context.Expenses.Add(item);
             }
 
-            _context.SaveChanges();
+            await _context.SaveChangesAsync();
         }
 
         public Task<int> SetPositions(List<Expenses> expenses)
         {
-            foreach (Expenses expense in expenses)
+            // Atualizar apenas o campo Position para registros que pertencem ao usuário
+            List<int> ids = expenses.Select(e => e.Id).Distinct().ToList();
+
+            List<Expenses> savedExpenses = _context.Expenses
+                                        .Where(e => ids.Contains(e.Id) && e.UserId == _user.Id)
+                                        .ToList();
+
+            if (savedExpenses.Count != ids.Count)
             {
-                _context.Entry(expense).State = EntityState.Modified;
+                throw new Exception("Erro no ExpenseService.SetPositions: existem despesas inválidas para o usuário atual.");
+            }
+
+            foreach (Expenses saved in savedExpenses)
+            {
+                Expenses? request = expenses.FirstOrDefault(e => e.Id == saved.Id);
+
+                if (request != null)
+                {
+                    saved.Position = request.Position;
+                }
             }
 
             return _context.SaveChangesAsync();
@@ -337,17 +392,29 @@ namespace BudgetAPI.Services
             return _context.SaveChangesAsync();
         }
 
-        public Task<int> PostExpenses(Expenses expense)
+        public async Task<int> PostExpenses(Expenses expense)
         {
+            await FinancialResourceValidator.ValidateResourcesForCreateAsync(
+                _context,
+                _user.Id,
+                expense.CardId,
+                expense.AccountId);
+
             expense.UserId = _user.Id;
 
             _context.Expenses.Add(expense);
 
-            return _context.SaveChangesAsync();
+            return await _context.SaveChangesAsync();
         }
 
-        public void PostExpensesWithParcels(Expenses expenses, bool repeat, int qtyMonths)
+        public async Task PostExpensesWithParcels(Expenses expenses, bool repeat, int qtyMonths)
         {
+            await FinancialResourceValidator.ValidateResourcesForCreateAsync(
+                _context,
+                _user.Id,
+                expenses.CardId,
+                expenses.AccountId);
+
             List<Expenses>? expensesList = repeat ?
                                            RepeatExpenses(expenses, qtyMonths) :
                                            GenerateExpenses(expenses);
@@ -365,7 +432,7 @@ namespace BudgetAPI.Services
                 }
 
                 _context.Expenses.Add(cp);
-                _context.SaveChanges();
+                await _context.SaveChangesAsync();
 
                 if (firstExpenses == null)
                 {
@@ -748,6 +815,12 @@ namespace BudgetAPI.Services
                         Fixed         = true,
                         RelatedId     = null
                     };
+
+                    await FinancialResourceValidator.ValidateResourcesForCreateAsync(
+                        _context,
+                        _user.Id,
+                        newExpense.CardId,
+                        newExpense.AccountId);
 
                     _context.Expenses.Add(newExpense);
                     createdCount++;

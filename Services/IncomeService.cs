@@ -1,4 +1,5 @@
 ﻿using BudgetAPI.Data;
+using BudgetAPI.Helpers;
 using BudgetAPI.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,12 +15,12 @@ namespace BudgetAPI.Services
         IQueryable<IncomesDTO2> GetIncomesComboList(string reference);
         Task<int> PutIncomes(Incomes incomes, bool repeatToNextMonths = false);
         Task PutIncomesAllParcels(Incomes incomes);
-        void PutIncomesWithParcels(Incomes incomes, int qtyMonths);
+        Task PutIncomesWithParcels(Incomes incomes, int qtyMonths);
         Task<int> SetPositions(List<Incomes> incomes);
         Task<int> AddValue(Incomes income, decimal value);
         Task<int> PostIncomes(Incomes income);
         Task PostIncomesAllParcels(Incomes incomes);
-        void PostIncomesWithParcels(Incomes incomes, int qtyMonths);
+        Task PostIncomesWithParcels(Incomes incomes, int qtyMonths);
         Task<int> DeleteIncomes(Incomes income);
         bool IncomesExists(int id);
         bool ValidarUsuario(int incomeId);
@@ -89,7 +90,7 @@ namespace BudgetAPI.Services
             return incomes;
         }
 
-        public async Task<int> PutIncomes(Incomes income, bool repeatToNextMonths = false)
+        public async  Task<int> PutIncomes(Incomes income, bool repeatToNextMonths = false)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
 
@@ -103,6 +104,14 @@ namespace BudgetAPI.Services
                 {
                     throw new Exception("Receita não encontrada para o usuário atual.");
                 }
+
+                await FinancialResourceValidator.ValidateResourcesForUpdateAsync(
+                    _context,
+                    _user.Id,
+                    savedIncome.CardId,
+                    income.CardId,
+                    savedIncome.AccountId,
+                    income.AccountId);
 
                 string originalDescription = (savedIncome.Description ?? string.Empty).Trim();
                 string originalReference   = savedIncome.Reference;
@@ -136,6 +145,14 @@ namespace BudgetAPI.Services
 
                     foreach (Incomes item in futureIncomes)
                     {
+                        await FinancialResourceValidator.ValidateResourcesForUpdateAsync(
+                            _context,
+                            _user.Id,
+                            item.CardId,
+                            income.CardId,
+                            item.AccountId,
+                            income.AccountId);
+
                         item.Description = income.Description;
                         item.Note        = income.Note;
                         item.CardId      = income.CardId;
@@ -148,8 +165,6 @@ namespace BudgetAPI.Services
                             item.ToReceive      = GetFutureToReceive(income, item);
                             item.TotalToReceive = income.TotalToReceive;
                         }
-
-                        _context.Entry(item).State = EntityState.Modified;
                     }
                 }
 
@@ -166,73 +181,133 @@ namespace BudgetAPI.Services
             }
         }
 
-        public async Task PutIncomesAllParcels(Incomes income)
+        public async Task PutIncomesAllParcels(
+            Incomes income)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            using var transaction =
+                await _context.Database.BeginTransactionAsync();
 
             try
             {
-                income.UserId = _user.Id;
+                Incomes? savedIncome = await _context.Incomes
+                    .FirstOrDefaultAsync(i =>
+                        i.Id == income.Id &&
+                        i.UserId == _user.Id);
 
-                if (income.ParcelNumber == null || income.ParcelNumber <= 0)
+                if (savedIncome == null)
+                {
+                    throw new InvalidOperationException(
+                        "Receita não encontrada para o usuário atual.");
+                }
+
+                await FinancialResourceValidator.ValidateResourcesForUpdateAsync(
+                    _context,
+                    _user.Id,
+                    savedIncome.CardId,
+                    income.CardId,
+                    savedIncome.AccountId,
+                    income.AccountId);
+
+                income.UserId = _user.Id;
+                income.RelatedId = savedIncome.RelatedId;
+
+                if (!income.ParcelNumber.HasValue || income.ParcelNumber.Value <= 0)
                 {
                     income.ParcelNumber = 1;
                 }
 
-                if (income.Parcels == null || income.Parcels <= 0)
+                if (!income.Parcels.HasValue || income.Parcels.Value <= 0)
                 {
                     income.Parcels = 1;
                 }
 
                 if (income.TotalToReceive == 0)
                 {
-                    income.TotalToReceive = income.ToReceive;
+                    income.TotalToReceive =
+                        income.ToReceive;
                 }
 
-                _context.Entry(income).State = EntityState.Modified;
+                List<Incomes> incomesList =
+                    GenerateIncomes(income);
 
-                List<Incomes> incomesList = GenerateIncomes(income);
-
-                Incomes? currentGeneratedIncome = incomesList.FirstOrDefault();
+                Incomes? currentGeneratedIncome =
+                    incomesList.FirstOrDefault();
 
                 if (currentGeneratedIncome != null)
                 {
-                    income.ToReceive = currentGeneratedIncome.ToReceive;
+                    income.ToReceive =
+                        currentGeneratedIncome.ToReceive;
                 }
 
-                int relatedId = income.RelatedId ?? income.Id;
+                List<Incomes> generatedFutureIncomes =
+                    incomesList
+                        .Where(i =>
+                            i.ParcelNumber.HasValue &&
+                            income.ParcelNumber.HasValue &&
+                            i.ParcelNumber.Value >
+                            income.ParcelNumber.Value)
+                        .ToList();
 
-                List<Incomes> futureIncomesToRemove = _context.Incomes
-                    .Where(i =>
-                        i.UserId == _user.Id &&
-                        i.Id != income.Id &&
-                        (i.RelatedId == relatedId || i.Id == relatedId) &&
-                        i.ParcelNumber > income.ParcelNumber &&
-                        i.Received == 0)
-                    .ToList();
+                if (generatedFutureIncomes.Any())
+                {
+                    await FinancialResourceValidator.ValidateResourcesForCreateAsync(
+                        _context,
+                        _user.Id,
+                        income.CardId,
+                        income.AccountId);
+                }
+
+                int relatedId =
+                    savedIncome.RelatedId ??
+                    savedIncome.Id;
+
+                List<Incomes> futureIncomesToRemove =
+                    await _context.Incomes
+                        .Where(i =>
+                            i.UserId == _user.Id &&
+                            i.Id != savedIncome.Id &&
+                            (
+                                i.RelatedId == relatedId ||
+                                i.Id == relatedId
+                            ) &&
+                            i.ParcelNumber.HasValue &&
+                            income.ParcelNumber.HasValue &&
+                            i.ParcelNumber.Value >
+                            income.ParcelNumber.Value &&
+                            i.Received == 0)
+                        .ToListAsync();
 
                 if (futureIncomesToRemove.Any())
                 {
-                    _context.Incomes.RemoveRange(futureIncomesToRemove);
+                    _context.Incomes.RemoveRange(
+                        futureIncomesToRemove);
 
                     await _context.SaveChangesAsync();
                 }
 
-                foreach (Incomes item in incomesList.Where(i => i.ParcelNumber > income.ParcelNumber))
+                _context.Entry(savedIncome)
+                    .CurrentValues
+                    .SetValues(income);
+
+                foreach (Incomes item in generatedFutureIncomes)
                 {
-                    bool alreadyExists = _context.Incomes.Any(i =>
-                                         i.UserId == _user.Id &&
-                                         i.Id != income.Id &&
-                                         (i.RelatedId == relatedId || i.Id == relatedId) &&
-                                         i.ParcelNumber == item.ParcelNumber &&
-                                         i.Parcels == item.Parcels);
+                    bool alreadyExists =
+                        await _context.Incomes.AnyAsync(i =>
+                            i.UserId == _user.Id &&
+                            i.Id != savedIncome.Id &&
+                            (
+                                i.RelatedId == relatedId ||
+                                i.Id == relatedId
+                            ) &&
+                            i.ParcelNumber == item.ParcelNumber &&
+                            i.Parcels == item.Parcels);
 
                     if (alreadyExists)
                     {
                         continue;
                     }
 
-                    item.UserId    = _user.Id;
+                    item.UserId = _user.Id;
                     item.RelatedId = relatedId;
 
                     _context.Incomes.Add(item);
@@ -249,25 +324,72 @@ namespace BudgetAPI.Services
             }
         }
 
-        public void PutIncomesWithParcels(Incomes incomes, int qtyMonths)
+        public async Task PutIncomesWithParcels(Incomes incomes, int qtyMonths)
         {
-            _context.Entry(incomes).State = EntityState.Modified;
+            Incomes? savedIncome = await _context.Incomes
+                .AsNoTracking()
+                .FirstOrDefaultAsync(i =>
+                    i.Id == incomes.Id &&
+                    i.UserId == _user.Id);
+
+            if (savedIncome == null)
+            {
+                throw new InvalidOperationException(
+                    "Receita não encontrada para o usuário atual.");
+            }
+
+            await FinancialResourceValidator.ValidateResourcesForUpdateAsync(
+                _context,
+                _user.Id,
+                savedIncome.CardId,
+                incomes.CardId,
+                savedIncome.AccountId,
+                incomes.AccountId);
 
             var incomesList = RepeatIncomes(incomes, qtyMonths);
 
+            bool createsNewRecords = incomesList.Skip(1).Any();
+
+            if (createsNewRecords)
+            {
+                await FinancialResourceValidator.ValidateResourcesForCreateAsync(
+                    _context,
+                    _user.Id,
+                    incomes.CardId,
+                    incomes.AccountId);
+            }
+
+            incomes.UserId = _user.Id;
+
+            _context.Entry(incomes).State = EntityState.Modified;
+
             foreach (Incomes cp in incomesList.Skip(1))
             {
-                _context.Incomes.Add(cp);
+                cp.UserId = _user.Id;
 
-                _context.SaveChanges();
+                _context.Incomes.Add(cp);
             }
+
+            await _context.SaveChangesAsync();
         }
 
         public Task<int> SetPositions(List<Incomes> incomes)
         {
-            foreach (Incomes income in incomes)
+            // Atualizar apenas o campo Position de registros carregados do banco
+            List<int> ids = incomes.Select(i => i.Id).Distinct().ToList();
+
+            List<Incomes> saved = _context.Incomes
+                                .Where(i => ids.Contains(i.Id) && i.UserId == _user.Id)
+                                .ToList();
+
+            if (saved.Count != ids.Count)
+                throw new Exception("Erro no IncomeService.SetPositions: existem receitas inválidas para o usuário atual.");
+
+            foreach (Incomes s in saved)
             {
-                _context.Entry(income).State = EntityState.Modified;
+                Incomes? req = incomes.FirstOrDefault(i => i.Id == s.Id);
+                if (req != null)
+                    s.Position = req.Position;
             }
 
             return _context.SaveChangesAsync();
@@ -291,8 +413,14 @@ namespace BudgetAPI.Services
             return _context.SaveChangesAsync();
         }
 
-        public Task<int> PostIncomes(Incomes income)
+        public async Task<int> PostIncomes(Incomes income)
         {
+            await FinancialResourceValidator.ValidateResourcesForCreateAsync(
+                _context,
+                _user.Id,
+                income.CardId,
+                income.AccountId);
+
             income.UserId = _user.Id;
 
             if (income.TotalToReceive == 0)
@@ -302,33 +430,45 @@ namespace BudgetAPI.Services
 
             _context.Incomes.Add(income);
 
-            return _context.SaveChangesAsync();
+            return await _context.SaveChangesAsync();
         }
 
-        public async Task PostIncomesAllParcels(Incomes income)
+        public async Task PostIncomesAllParcels(
+            Incomes income)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            using var transaction =
+                await _context.Database.BeginTransactionAsync();
 
             try
             {
+                await FinancialResourceValidator.ValidateResourcesForCreateAsync(
+                    _context,
+                    _user.Id,
+                    income.CardId,
+                    income.AccountId);
+
                 income.UserId = _user.Id;
 
-                if (income.ParcelNumber == null || income.ParcelNumber <= 0)
+                if (!income.ParcelNumber.HasValue ||
+                    income.ParcelNumber.Value <= 0)
                 {
                     income.ParcelNumber = 1;
                 }
 
-                if (income.Parcels == null || income.Parcels <= 0)
+                if (!income.Parcels.HasValue ||
+                    income.Parcels.Value <= 0)
                 {
                     income.Parcels = 1;
                 }
 
                 if (income.TotalToReceive == 0)
                 {
-                    income.TotalToReceive = income.ToReceive;
+                    income.TotalToReceive =
+                        income.ToReceive;
                 }
 
-                List<Incomes> incomesList = GenerateIncomes(income);
+                List<Incomes> incomesList =
+                    GenerateIncomes(income);
 
                 Incomes? firstIncome = null;
 
@@ -338,7 +478,8 @@ namespace BudgetAPI.Services
 
                     if (firstIncome != null)
                     {
-                        item.RelatedId = firstIncome.Id;
+                        item.RelatedId =
+                            firstIncome.Id;
                     }
 
                     _context.Incomes.Add(item);
@@ -349,9 +490,14 @@ namespace BudgetAPI.Services
                     {
                         firstIncome = item;
 
-                        income.Id             = firstIncome.Id;
-                        income.ToReceive      = firstIncome.ToReceive;
-                        income.TotalToReceive = firstIncome.TotalToReceive;
+                        income.Id =
+                            firstIncome.Id;
+
+                        income.ToReceive =
+                            firstIncome.ToReceive;
+
+                        income.TotalToReceive =
+                            firstIncome.TotalToReceive;
                     }
                 }
 
@@ -364,8 +510,14 @@ namespace BudgetAPI.Services
             }
         }
 
-        public void PostIncomesWithParcels(Incomes incomes, int qtyMonths)
+        public async Task PostIncomesWithParcels(Incomes incomes, int qtyMonths)
         {
+            await FinancialResourceValidator.ValidateResourcesForCreateAsync(
+                _context,
+                _user.Id,
+                incomes.CardId,
+                incomes.AccountId);
+
             var incomesList = RepeatIncomes(incomes, qtyMonths);
 
             Incomes? firstIncomes = null;
@@ -381,7 +533,7 @@ namespace BudgetAPI.Services
                 }
 
                 _context.Incomes.Add(cp);
-                _context.SaveChanges();
+                await _context.SaveChangesAsync();
 
                 if (firstIncomes == null)
                 {
@@ -668,7 +820,17 @@ namespace BudgetAPI.Services
 
                 if (!alreadyExists)
                 {
-                    Incomes nextParcel = CreateNextParcelFromPreviousMonth(previousIncome, reference, previousIncome.Position);
+                    Incomes nextParcel =
+                        CreateNextParcelFromPreviousMonth(
+                            previousIncome,
+                            reference,
+                            previousIncome.Position);
+
+                    await FinancialResourceValidator.ValidateResourcesForCreateAsync(
+                        _context,
+                        _user.Id,
+                        nextParcel.CardId,
+                        nextParcel.AccountId);
 
                     _context.Incomes.Add(nextParcel);
                     currentIncomes.Add(nextParcel);
@@ -722,42 +884,72 @@ namespace BudgetAPI.Services
                 if (!previousIncomes.Any())
                     throw new InvalidOperationException("Nenhuma receita encontrada no mês anterior.");
 
-                foreach (Incomes prev in previousIncomes.Where(x => x.CardId == null && x.Description != "Tarifa"))
+                foreach (
+                    Incomes previousIncome
+                    in previousIncomes.Where(i =>
+                        i.CardId == null &&
+                        i.Description != "Tarifa"))
                 {
-                    bool isYield = string.Equals(prev.Type, "Y", StringComparison.OrdinalIgnoreCase);
+                    bool isYield =
+                        string.Equals(
+                            previousIncome.Type,
+                            "Y",
+                            StringComparison.OrdinalIgnoreCase);
 
-                    if (HasNextParcel(prev))
+                    if (HasNextParcel(previousIncome))
                     {
-                        Incomes nextParcel = CreateNextParcelFromPreviousMonth(prev, reference, prev.Position);
+                        Incomes nextParcel =
+                            CreateNextParcelFromPreviousMonth(
+                                previousIncome,
+                                reference,
+                                previousIncome.Position);
+
+                        await FinancialResourceValidator.ValidateResourcesForCreateAsync(
+                            _context,
+                            _user.Id,
+                            nextParcel.CardId,
+                            nextParcel.AccountId);
 
                         _context.Incomes.Add(nextParcel);
 
                         continue;
                     }
 
-                    if (IsParceledIncome(prev))
+                    if (IsParceledIncome(previousIncome))
                     {
                         continue;
                     }
 
-                    _context.Incomes.Add(new Incomes
+                    Incomes newIncome = new()
                     {
-                        UserId         = _user.Id,
-                        Reference      = reference,
-                        Position       = prev.Position,
-                        Description    = prev.Description,
-                        ToReceive      = isYield ? 0 : prev.ToReceive,
-                        Received       = 0,
-                        ParcelNumber   = null,
-                        Parcels        = null,
-                        TotalToReceive = isYield ? 0 : prev.TotalToReceive,
-                        Note           = prev.Note,
-                        CardId         = null,
-                        AccountId      = prev.AccountId,
-                        Type           = prev.Type,
-                        PeopleId       = prev.PeopleId,
-                        RelatedId      = null
-                    });
+                        UserId = _user.Id,
+                        Reference = reference,
+                        Position = previousIncome.Position,
+                        Description = previousIncome.Description,
+                        ToReceive = isYield
+                            ? 0
+                            : previousIncome.ToReceive,
+                        Received = 0,
+                        ParcelNumber = null,
+                        Parcels = null,
+                        TotalToReceive = isYield
+                            ? 0
+                            : previousIncome.TotalToReceive,
+                        Note = previousIncome.Note,
+                        CardId = null,
+                        AccountId = previousIncome.AccountId,
+                        Type = previousIncome.Type,
+                        PeopleId = previousIncome.PeopleId,
+                        RelatedId = null
+                    };
+
+                    await FinancialResourceValidator.ValidateResourcesForCreateAsync(
+                        _context,
+                        _user.Id,
+                        newIncome.CardId,
+                        newIncome.AccountId);
+
+                    _context.Incomes.Add(newIncome);
                 }
 
                 await _context.SaveChangesAsync();
