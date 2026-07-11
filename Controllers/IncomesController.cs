@@ -65,7 +65,7 @@ namespace BudgetAPI.Controllers
 
         // PUT: api/Incomes/5
         [HttpPut("{id}")]
-        public async Task<IActionResult> PutIncomes(int id, Incomes income, bool repeatToNextMonths = false, bool preserveFutureValues = false)
+        public async Task<ActionResult<IncomesDTO>> PutIncomes(int id, Incomes income, bool repeatToNextMonths = false, bool preserveFutureValues = false)
         {
             if (id != income.Id || !_incomeService.ValidarUsuario(id))
             {
@@ -75,6 +75,8 @@ namespace BudgetAPI.Controllers
             try
             {
                 await _incomeService.PutIncomes(income, repeatToNextMonths, preserveFutureValues);
+
+                return await GetIncomesDTO(income.Id);
             }
             catch (DbUpdateConcurrencyException dex)
             {
@@ -89,12 +91,10 @@ namespace BudgetAPI.Controllers
             {
                 return Problem(ex.Message);
             }
-
-            return Ok();
         }
 
         [HttpPut("AllParcels/{id}")]
-        public async Task<ActionResult<Incomes>> PutIncomesAllParcels(int id, Incomes income)
+        public async Task<ActionResult<IncomesDTO>> PutIncomesAllParcels(int id, Incomes income)
         {
             try
             {
@@ -105,7 +105,7 @@ namespace BudgetAPI.Controllers
 
                 await _incomeService.PutIncomesAllParcels(income);
 
-                return Ok();
+                return await GetIncomesDTO(income.Id);
             }
             catch (Exception ex)
             {
@@ -114,7 +114,7 @@ namespace BudgetAPI.Controllers
         }
 
         [HttpPut("Repeat/{id}")]
-        public async Task<ActionResult<Incomes>> PutIncomesWithParcels(int id, Incomes income, int qtyMonths)
+        public async Task<ActionResult<IncomesDTO>> PutIncomesWithParcels(int id, Incomes income, int qtyMonths)
         {
             try
             {
@@ -125,7 +125,7 @@ namespace BudgetAPI.Controllers
 
                 await _incomeService.PutIncomesWithParcels(income, qtyMonths);
 
-                return Ok();
+                return await GetIncomesDTO(income.Id);
             }
             catch (Exception ex)
             {
