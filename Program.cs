@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using BudgetAPI.Authorization;
 using BudgetAPI.Data;
 using BudgetAPI.Helpers;
@@ -9,33 +8,23 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
-int mode = 0;
+string connectionName = builder.Environment.IsDevelopment() ? "LocalConnection" : "AzureConnection";
 
-//if (Debugger.IsAttached)
-//{
-//	mode = 1;
-//}
+string connectionString = builder.Configuration.GetConnectionString(connectionName) ??
+    throw new InvalidOperationException($"A connection string '{connectionName}' não foi configurada.");
 
-if (mode == 0)
-{
-	//builder.Services.AddDbContext<BudgetContext>(options => options.UseSqlServer(builder.Configuration.GetConnectionString("AzureConnection")));
-	builder.Services.AddDbContext<BudgetContext>(options => options.UseSqlServer(builder.Configuration.GetConnectionString("AzureConnection") ?? ""));
-}
-else
-{
-	builder.Services.AddDbContext<BudgetContext>(options => options.UseSqlServer(builder.Configuration.GetConnectionString("LocalConnection") ?? ""));
-}
+builder.Services.AddDbContext<BudgetContext>(options => options.UseSqlServer(connectionString));
 
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(config =>
 {
-	config.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
-	{
-		Title = "BudgetAPI",
-		Version = "v1"
-	});
+    config.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
+    {
+        Title = "BudgetAPI",
+        Version = "v1"
+    });
 });
 builder.Services.AddCors();
 // Configure strongly typed settings object
@@ -57,28 +46,31 @@ builder.Services.AddScoped<IAccountApplicationService, AccountApplicationService
 builder.Services.AddScoped<IAccountYieldRangeService, AccountYieldRangeService>();
 builder.Services.AddScoped<IAnnualSavingsService, AnnualSavingsService>();
 builder.Services.AddHttpContextAccessor();
-// Serviço para manter a API acordada
-builder.Services.AddHostedService<KeepAliveService>();
-// Configuração do Firebase para notificações push
-builder.Services.AddSingleton<FirebaseNotificationService>();
-// Configuração do serviço de notificações diárias
-builder.Services.AddScoped<INotificationJobService, NotificationJobService>();
-builder.Services.AddHostedService<DailyNotificationHostedService>();
 
+if (!builder.Environment.IsDevelopment())
+{
+    // Serviço para manter a API acordada
+    builder.Services.AddHostedService<KeepAliveService>();
+    // Configuração do Firebase para notificações push
+    builder.Services.AddSingleton<FirebaseNotificationService>();
+    // Configuração do serviço de notificações diárias
+    builder.Services.AddScoped<INotificationJobService, NotificationJobService>();
+    builder.Services.AddHostedService<DailyNotificationHostedService>();
+}
 
 var app = builder.Build();
 
 app.UseCors(options => options//.WithOrigins("http://localhost:4200")
-					   .AllowAnyMethod()
-					   .AllowAnyHeader()
-					   .AllowAnyOrigin()
-					   );
+                       .AllowAnyMethod()
+                       .AllowAnyHeader()
+                       .AllowAnyOrigin()
+                       );
 
 // Swagger middleware (liga só em dev)
 if (app.Environment.IsDevelopment())
 {
-	app.UseSwagger();
-	app.UseSwaggerUI();
+    app.UseSwagger();
+    app.UseSwaggerUI();
 }
 
 app.UseHttpsRedirection();

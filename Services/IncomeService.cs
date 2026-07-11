@@ -13,10 +13,7 @@ namespace BudgetAPI.Services
         IQueryable<IncomesDTO> GetIncomes(string reference);
         IQueryable<IncomesDTO> GetMyIncomes(string reference);
         IQueryable<IncomesDTO2> GetIncomesComboList(string reference);
-        Task<int> PutIncomes(
-            Incomes incomes,
-            bool repeatToNextMonths = false,
-            bool preserveFutureValues = false);
+        Task<int> PutIncomes(Incomes incomes, bool repeatToNextMonths = false, bool preserveFutureValues = false);
         Task PutIncomesAllParcels(Incomes incomes);
         Task PutIncomesWithParcels(Incomes incomes, int qtyMonths);
         Task<int> SetPositions(List<Incomes> incomes);
@@ -93,10 +90,7 @@ namespace BudgetAPI.Services
             return incomes;
         }
 
-        public async Task<int> PutIncomes(
-            Incomes income,
-            bool repeatToNextMonths = false,
-            bool preserveFutureValues = false)
+        public async Task<int> PutIncomes(Incomes income, bool repeatToNextMonths = false, bool preserveFutureValues = false)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
 
@@ -120,7 +114,6 @@ namespace BudgetAPI.Services
                     income.AccountId);
 
                 string originalDescription = (savedIncome.Description ?? string.Empty).Trim();
-                string originalReference   = savedIncome.Reference;
 
                 income.UserId = _user.Id;
 
@@ -129,9 +122,7 @@ namespace BudgetAPI.Services
                     income.TotalToReceive = income.ToReceive;
                 }
 
-                bool preserveFutureIncomeValues =
-                    preserveFutureValues ||
-                    IsYieldIncome(income);
+                bool preserveFutureIncomeValues = preserveFutureValues || IsYieldIncome(income);
 
                 if (repeatToNextMonths && !preserveFutureIncomeValues)
                 {
@@ -152,33 +143,23 @@ namespace BudgetAPI.Services
 
                 income.RelatedId = savedIncome.RelatedId;
 
-                _context.Entry(income).State = EntityState.Modified;
+                List<Incomes>? futureIncomes = null;
 
                 if (repeatToNextMonths)
                 {
-                    int relatedId      = savedIncome.RelatedId ?? savedIncome.Id;
-                    bool isInstallment = savedIncome.Parcels.GetValueOrDefault() > 1;
+                    (int? currentRelatedId, List<Incomes> resolvedFutureIncomes) =
+                        await GetFutureIncomesForRepeatAsync(
+                            savedIncome,
+                            originalDescription);
 
-                    List<Incomes> futureIncomes = await _context.Incomes
-                        .Where(i =>
-                            i.UserId == _user.Id &&
-                            i.Id != income.Id &&
-                            i.Received == 0 &&
-                            string.Compare(i.Reference, originalReference) > 0 &&
-                            (
-                                isInstallment
-                                    ? (
-                                        i.RelatedId == relatedId &&
-                                        i.ParcelNumber > savedIncome.ParcelNumber &&
-                                        i.Parcels == savedIncome.Parcels
-                                    )
-                                    : (
-                                        i.Description != null &&
-                                        i.Description.Trim() == originalDescription
-                                    )
-                            ))
-                        .ToListAsync();
+                    income.RelatedId = currentRelatedId;
+                    futureIncomes    = resolvedFutureIncomes;
+                }
 
+                _context.Entry(income).State = EntityState.Modified;
+
+                if (futureIncomes != null)
+                {
                     foreach (Incomes item in futureIncomes)
                     {
                         await FinancialResourceValidator.ValidateResourcesForUpdateAsync(
@@ -218,8 +199,7 @@ namespace BudgetAPI.Services
             }
         }
 
-        public async Task PutIncomesAllParcels(
-            Incomes income)
+        public async Task PutIncomesAllParcels(Incomes income)
         {
             using var transaction =
                 await _context.Database.BeginTransactionAsync();
@@ -470,8 +450,7 @@ namespace BudgetAPI.Services
             return await _context.SaveChangesAsync();
         }
 
-        public async Task PostIncomesAllParcels(
-            Incomes income)
+        public async Task PostIncomesAllParcels(Incomes income)
         {
             using var transaction =
                 await _context.Database.BeginTransactionAsync();
@@ -698,8 +677,6 @@ namespace BudgetAPI.Services
             };
         }
 
-
-
         private static string GetNewReference(string reference)
         {
             var year  = int.Parse(reference.Substring(0, 4));
@@ -835,10 +812,7 @@ namespace BudgetAPI.Services
             Description = income.Description
         };
 
-        private static DateTime? GetFutureReceiptDate(
-            Incomes sourceIncome,
-            string sourceReference,
-            string targetReference)
+        private static DateTime? GetFutureReceiptDate(Incomes sourceIncome, string sourceReference, string targetReference)
         {
             return ReferenceDateHelper.GetProportionalDate(
                 sourceIncome.ReceiptDate,
@@ -1108,6 +1082,155 @@ namespace BudgetAPI.Services
             }
 
             return sourceIncome.ToReceive;
+        }
+
+        private async Task<(int? CurrentRelatedId, List<Incomes> FutureIncomes)> GetFutureIncomesForRepeatAsync(Incomes savedIncome, string originalDescription)
+        {
+            int currentParcel  = savedIncome.ParcelNumber.GetValueOrDefault();
+            int totalParcels   = savedIncome.Parcels.GetValueOrDefault();
+            bool isInstallment = totalParcels > 1;
+
+            if (!isInstallment)
+            {
+                List<Incomes> futureIncomes = await _context.Incomes
+                .Where(i =>
+                    i.UserId == _user.Id &&
+                    i.Id != savedIncome.Id &&
+                    i.Received == 0 &&
+                    i.Description != null &&
+                    i.Description.Trim() == originalDescription &&
+                    string.Compare(
+                        i.Reference,
+                        savedIncome.Reference) > 0)
+                .ToListAsync();
+
+                return (savedIncome.RelatedId, futureIncomes);
+            }
+
+            if (currentParcel <= 0 || currentParcel > totalParcels)
+            {
+                throw new InvalidOperationException(
+                    "O número da parcela atual é inválido para o total de parcelas informado.");
+            }
+
+            int relatedId = savedIncome.RelatedId ?? savedIncome.Id;
+
+            bool hasLinkedSequence = await _context.Incomes
+                .AnyAsync(i =>
+                    i.UserId == _user.Id &&
+                    i.Id != savedIncome.Id &&
+                    i.Parcels == totalParcels &&
+                    (
+                        i.Id == relatedId ||
+                        i.RelatedId == relatedId
+                    ));
+
+            if (hasLinkedSequence)
+            {
+                List<Incomes> linkedFutureIncomes = await _context.Incomes
+                .Where(i =>
+                    i.UserId == _user.Id &&
+                    i.Id != savedIncome.Id &&
+                    i.Received == 0 &&
+                    i.RelatedId == relatedId &&
+                    i.ParcelNumber.HasValue &&
+                    i.ParcelNumber.Value > currentParcel &&
+                    i.Parcels == totalParcels)
+                .OrderBy(i => i.ParcelNumber)
+                .ToListAsync();
+
+                return (savedIncome.RelatedId, linkedFutureIncomes);
+            }
+
+            List<Incomes> legacyCandidates = await _context.Incomes
+                .Where(i =>
+                    i.UserId == _user.Id &&
+                    i.Id != savedIncome.Id &&
+                    i.Description != null &&
+                    i.Description.Trim() == originalDescription &&
+                    i.ParcelNumber.HasValue &&
+                    i.ParcelNumber.Value >= 1 &&
+                    i.ParcelNumber.Value <= totalParcels &&
+                    i.Parcels == totalParcels &&
+                    i.TotalToReceive == savedIncome.TotalToReceive)
+                .ToListAsync();
+
+            DateTime currentReferenceDate = DateTime.ParseExact(savedIncome.Reference, "yyyyMM", null);
+
+            List<Incomes> legacySequence = legacyCandidates
+                .Where(i =>
+                {
+                    int monthDifference = i.ParcelNumber!.Value - currentParcel;
+
+                    string expectedReference = currentReferenceDate.AddMonths(monthDifference).ToString("yyyyMM");
+
+                    return i.Reference == expectedReference;
+                })
+                .ToList();
+
+            List<(int Id, int ParcelNumber, string Reference)> sequenceRecords =
+                legacySequence
+                    .Select(i => (
+                        i.Id,
+                        i.ParcelNumber!.Value,
+                        i.Reference))
+                    .ToList();
+
+            sequenceRecords.Add((
+                savedIncome.Id,
+                currentParcel,
+                savedIncome.Reference));
+
+            IGrouping<int, (int Id, int ParcelNumber, string Reference)>?
+                duplicatedParcel = sequenceRecords
+                    .GroupBy(i => i.ParcelNumber)
+                    .FirstOrDefault(g => g.Count() > 1);
+
+            if (duplicatedParcel != null)
+            {
+                throw new InvalidOperationException(
+                    "Não foi possível identificar com segurança a sequência legada. " +
+                    $"Existe mais de uma receita correspondente à parcela " +
+                    $"{duplicatedParcel.Key}/{totalParcels}.");
+            }
+
+            bool hasFutureParcel = legacySequence.Any(i => i.ParcelNumber!.Value > currentParcel);
+
+            if (currentParcel < totalParcels && !hasFutureParcel)
+            {
+                throw new InvalidOperationException(
+                    "Não foi possível localizar as parcelas futuras desta receita legada. " +
+                    "Nenhuma alteração foi aplicada aos próximos meses.");
+            }
+
+            (int Id, int ParcelNumber, string Reference) anchor =
+                sequenceRecords
+                    .OrderBy(i => i.ParcelNumber)
+                    .ThenBy(i => i.Reference)
+                    .ThenBy(i => i.Id)
+                    .First();
+
+            foreach (Incomes item in legacySequence)
+            {
+                item.RelatedId =
+                    item.Id == anchor.Id
+                        ? null
+                        : anchor.Id;
+            }
+
+            int? currentRelatedId =
+                savedIncome.Id == anchor.Id
+                    ? null
+                    : anchor.Id;
+
+            List<Incomes> legacyFutureIncomes = legacySequence
+                .Where(i =>
+                    i.Received == 0 &&
+                    i.ParcelNumber!.Value > currentParcel)
+                .OrderBy(i => i.ParcelNumber)
+                .ToList();
+
+            return (currentRelatedId, legacyFutureIncomes);
         }
     }
 }

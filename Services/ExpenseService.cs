@@ -39,11 +39,7 @@ namespace BudgetAPI.Services
 
         private readonly Users _user;
 
-        public ExpenseService(
-            BudgetContext context,
-            IHttpContextAccessor httpContextAccessor,
-            FirebaseNotificationService firebase,
-            ILogger<FirebaseNotificationService> logger)
+        public ExpenseService(BudgetContext context, IHttpContextAccessor httpContextAccessor)
         {
             _context = context;
             _user    = httpContextAccessor.HttpContext!.Items["User"] as Users ?? new Users();
