@@ -17,7 +17,7 @@ namespace BudgetAPI.Services
         IQueryable<ExpensesDTO2> GetExpensesComboList(string reference);
         IQueryable<ExpensesByCategories> GetExpensesByCategories(string reference, int cardId);
         ExpensesByCategories GetExpensesAndCardPostingsByCategoryId(int? id, string reference, int cardId);
-        Task<int> PutExpenses(Expenses expenses, bool repeatToNextMonths = false);
+        Task<int> PutExpenses(Expenses expenses, bool repeatToNextMonths = false, bool preserveFutureValues = false);
         Task PutExpensesWithParcels(Expenses expenses, bool repeat, int qtyMonths);
         Task<int> SetPositions(List<Expenses> expenses);
         Task<int> AddValue(Expenses expense, decimal value);
@@ -27,6 +27,7 @@ namespace BudgetAPI.Services
         bool ExpensesExists(int id);
         bool ValidarUsuario(int expenseId);
         Task OrderByPreviousMonth(string reference);
+        Task RepeatPreviousMonth(string reference);
         Task<List<Expenses>> GetUpcomingOrOverdueExpenses(int daysAhead = 1);
         Task<ExpensesDTO?> AjustarValorComBaseNaCategoria(int expenseId);
         Task<int> RepeatFixedExpenses(string reference);
@@ -184,19 +185,19 @@ namespace BudgetAPI.Services
             return expensesByCategory;
         }
 
-        public async Task<int> PutExpenses(Expenses expense, bool repeatToNextMonths = false)
+        public async Task<int> PutExpenses(Expenses expense, bool repeatToNextMonths = false, bool preserveFutureValues = false)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
             {
                 Expenses? savedExpense = await _context.Expenses.AsNoTracking()
-                                                        .Where(e => e.Id == expense.Id && e.UserId == _user.Id)
-                                                        .FirstOrDefaultAsync();
+                                               .Where(e => e.Id == expense.Id && e.UserId == _user.Id)
+                                               .FirstOrDefaultAsync();
 
                 if (savedExpense == null)
                 {
-                    throw new Exception("Despesa não encontrada para o usuário atual.");
+                    throw new InvalidOperationException("Despesa não encontrada para o usuário atual.");
                 }
 
                 await FinancialResourceValidator.ValidateResourcesForUpdateAsync(
@@ -208,28 +209,41 @@ namespace BudgetAPI.Services
                     expense.AccountId);
 
                 string originalDescription = (savedExpense.Description ?? string.Empty).Trim();
-                string originalReference   = savedExpense.Reference;
 
                 expense.UserId = _user.Id;
 
+                if (expense.TotalToPay == 0)
+                {
+                    expense.TotalToPay = expense.ToPay;
+                }
+
+                if (repeatToNextMonths &&
+                    savedExpense.Parcels.GetValueOrDefault() > 1 &&
+                    (expense.ParcelNumber != savedExpense.ParcelNumber ||
+                     expense.Parcels != savedExpense.Parcels ||
+                     expense.Reference != savedExpense.Reference))
+                {
+                    throw new InvalidOperationException(
+                        "Não é permitido alterar a referência, o número da parcela ou o total de parcelas ao repetir a edição.");
+                }
+
+                expense.RelatedId = savedExpense.RelatedId;
+
+                List<Expenses>? futureExpenses = null;
+
                 if (repeatToNextMonths)
                 {
-                    expense.ToPay = GetFutureToPay(expense, expense);
+                    (int? currentRelatedId, List<Expenses> resolvedFutureExpenses) =
+                        await GetFutureExpensesForRepeatAsync(savedExpense, originalDescription);
+
+                    expense.RelatedId = currentRelatedId;
+                    futureExpenses    = resolvedFutureExpenses;
                 }
 
                 _context.Entry(expense).State = EntityState.Modified;
 
-                if (repeatToNextMonths)
+                if (futureExpenses != null)
                 {
-                    List<Expenses> futureExpenses = await _context.Expenses.Where(e =>
-                                                                      e.UserId == _user.Id &&
-                                                                      e.Id != expense.Id &&
-                                                                      e.Paid == 0 &&
-                                                                      e.Description != null &&
-                                                                      e.Description.Trim() == originalDescription &&
-                                                                      string.Compare(e.Reference, originalReference) > 0)
-                                                                 .ToListAsync();
-
                     foreach (Expenses item in futureExpenses)
                     {
                         await FinancialResourceValidator.ValidateResourcesForUpdateAsync(
@@ -241,22 +255,22 @@ namespace BudgetAPI.Services
                             expense.AccountId);
 
                         item.Description = expense.Description;
-                        item.ToPay = GetFutureToPay(expense, item);
-                        item.TotalToPay = expense.TotalToPay;
-                        item.Note = expense.Note;
-                        item.CardId = expense.CardId;
-                        item.AccountId = expense.AccountId;
-                        item.DueDate = GetFutureDueDate(
-                            expense,
-                            savedExpense.Reference,
-                            item.Reference);
+                        item.Note        = expense.Note;
+                        item.CardId      = expense.CardId;
+                        item.AccountId   = expense.AccountId;
+                        item.DueDate     = GetFutureDueDate(expense, savedExpense.Reference, item.Reference);
+                        item.CategoryId  = expense.CategoryId;
+                        item.Scheduled   = expense.Scheduled;
+                        item.PeopleId    = expense.PeopleId;
+                        item.DueDay      = expense.DueDay;
+                        item.Fixed       = expense.Fixed;
 
-                        item.CategoryId = expense.CategoryId;
-                        item.Scheduled = expense.Scheduled;
-                        item.PeopleId = expense.PeopleId;
-                        item.DueDay = expense.DueDay;
-                        item.ExpectedValue = expense.ExpectedValue;
-                        item.Fixed = expense.Fixed;
+                        if (!preserveFutureValues)
+                        {
+                            item.ToPay         = GetFutureToPay(expense, item);
+                            item.TotalToPay    = expense.TotalToPay;
+                            item.ExpectedValue = expense.ExpectedValue;
+                        }
                     }
                 }
 
@@ -349,6 +363,128 @@ namespace BudgetAPI.Services
             }
 
             await _context.SaveChangesAsync();
+        }
+
+        public async Task RepeatPreviousMonth(string reference)
+        {
+            if (string.IsNullOrWhiteSpace(reference) || reference.Length != 6)
+            {
+                throw new ArgumentException("Referência inválida. Formato esperado: yyyyMM.");
+            }
+
+            string previousReference = DateTime.ParseExact(reference, "yyyyMM", null)
+                                           .AddMonths(-1)
+                                           .ToString("yyyyMM");
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                List<Expenses> currentExpenses = await _context.Expenses
+                    .Where(e => e.UserId == _user.Id && e.Reference == reference)
+                    .ToListAsync();
+
+                if (currentExpenses.Any())
+                {
+                    _context.Expenses.RemoveRange(currentExpenses);
+                }
+
+                List<Expenses> previousExpenses = await _context.Expenses
+                    .Where(e => e.UserId == _user.Id && e.Reference == previousReference)
+                    .OrderBy(e => e.Position)
+                    .ToListAsync();
+
+                if (!previousExpenses.Any())
+                {
+                    throw new InvalidOperationException("Nenhuma despesa encontrada no mês anterior.");
+                }
+
+                foreach (Expenses previousExpense in previousExpenses.Where(e => e.CardId == null))
+                {
+                    if (HasNextParcel(previousExpense))
+                    {
+                        Expenses nextParcel = CreateNextParcelFromPreviousMonth(
+                            previousExpense,
+                            reference,
+                            previousExpense.Position);
+
+                        await FinancialResourceValidator.ValidateResourcesForCreateAsync(
+                            _context,
+                            _user.Id,
+                            nextParcel.CardId,
+                            nextParcel.AccountId);
+
+                        _context.Expenses.Add(nextParcel);
+
+                        continue;
+                    }
+
+                    if (IsParceledExpense(previousExpense))
+                    {
+                        continue;
+                    }
+
+                    Expenses newExpense = new()
+                    {
+                        UserId        = _user.Id,
+                        Reference     = reference,
+                        Position      = previousExpense.Position,
+                        Description   = previousExpense.Description,
+                        ToPay         = previousExpense.ToPay,
+                        Paid          = 0,
+                        Note          = previousExpense.Note,
+                        CardId        = null,
+                        AccountId     = previousExpense.AccountId,
+                        DueDate       = GetFutureDueDate(previousExpense, previousReference, reference),
+                        ParcelNumber  = null,
+                        Parcels       = null,
+                        TotalToPay    = previousExpense.TotalToPay == 0 ? previousExpense.ToPay : previousExpense.TotalToPay,
+                        CategoryId    = previousExpense.CategoryId,
+                        Scheduled     = previousExpense.Scheduled,
+                        PeopleId      = previousExpense.PeopleId,
+                        RelatedId     = null,
+                        Fixed         = previousExpense.Fixed,
+                        DueDay        = previousExpense.DueDay,
+                        ExpectedValue = previousExpense.ExpectedValue
+                    };
+
+                    await FinancialResourceValidator.ValidateResourcesForCreateAsync(
+                        _context,
+                        _user.Id,
+                        newExpense.CardId,
+                        newExpense.AccountId);
+
+                    _context.Expenses.Add(newExpense);
+                }
+
+                await _context.SaveChangesAsync();
+
+                List<int> cardPostingIdsToTouch = await (
+                    from cardPosting in _context.CardsPostings
+                    join card in _context.Cards on cardPosting.CardId equals card.Id
+                    where card.UserId == _user.Id &&
+                          cardPosting.Reference == reference
+                    group cardPosting by cardPosting.CardId
+                    into cardPostingsByCard
+                    select cardPostingsByCard.Min(cardPosting => cardPosting.Id))
+                    .ToListAsync();
+
+                foreach (int cardPostingId in cardPostingIdsToTouch)
+                {
+                    await _context.Database.ExecuteSqlRawAsync(
+                        "UPDATE dbo.CardsPostings SET Reference = Reference WHERE Id = {0}",
+                        cardPostingId);
+                }
+
+                await OrderByPreviousMonth(reference);
+
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
         }
 
         public Task<int> SetPositions(List<Expenses> expenses)
@@ -469,6 +605,79 @@ namespace BudgetAPI.Services
             return GetExpenses(expenseId).Any();
         }
 
+        private static bool HasNextParcel(Expenses expense)
+        {
+            return expense.ParcelNumber.HasValue &&
+                   expense.Parcels.HasValue &&
+                   expense.Parcels.Value > 1 &&
+                   expense.ParcelNumber.Value < expense.Parcels.Value;
+        }
+
+        private static bool IsParceledExpense(Expenses expense)
+        {
+            return expense.ParcelNumber.HasValue &&
+                   expense.Parcels.HasValue &&
+                   expense.Parcels.Value > 1;
+        }
+
+        private static bool IsSameExpenseFromPreviousMonth(Expenses currentExpense, Expenses previousExpense)
+        {
+            if (!string.Equals(
+                    currentExpense.Description?.Trim(),
+                    previousExpense.Description?.Trim(),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (IsParceledExpense(previousExpense))
+            {
+                if (!HasNextParcel(previousExpense))
+                {
+                    return false;
+                }
+
+                return currentExpense.Parcels == previousExpense.Parcels &&
+                       currentExpense.ParcelNumber == previousExpense.ParcelNumber + 1;
+            }
+
+            return !IsParceledExpense(currentExpense);
+        }
+
+        private Expenses CreateNextParcelFromPreviousMonth(Expenses previousExpense, string reference, short? position)
+        {
+            int nextParcelNumber = previousExpense.ParcelNumber!.Value + 1;
+            int parcels          = previousExpense.Parcels!.Value;
+
+            decimal totalToPay = previousExpense.TotalToPay == 0
+                ? previousExpense.ToPay * parcels
+                : previousExpense.TotalToPay;
+
+            return new Expenses
+            {
+                UserId        = _user.Id,
+                Reference     = reference,
+                Position      = position,
+                Description   = previousExpense.Description,
+                ToPay         = GetParcelAmount(totalToPay, parcels, nextParcelNumber),
+                Paid          = 0,
+                Note          = previousExpense.Note,
+                CardId        = null,
+                AccountId     = previousExpense.AccountId,
+                DueDate       = GetFutureDueDate(previousExpense, previousExpense.Reference, reference),
+                ParcelNumber  = nextParcelNumber,
+                Parcels       = parcels,
+                TotalToPay    = totalToPay,
+                CategoryId    = previousExpense.CategoryId,
+                Scheduled     = previousExpense.Scheduled,
+                PeopleId      = previousExpense.PeopleId,
+                RelatedId     = previousExpense.RelatedId ?? previousExpense.Id,
+                Fixed         = previousExpense.Fixed,
+                DueDay        = previousExpense.DueDay,
+                ExpectedValue = previousExpense.ExpectedValue
+            };
+        }
+
         private static string GetNewReference(string reference)
         {
             var year  = int.Parse(reference.Substring(0, 4));
@@ -495,7 +704,8 @@ namespace BudgetAPI.Services
 
         private short GetNewPosition(string reference)
         {
-            var newPosition = _context.Expenses.Where(e => e.Reference == reference).Max(e => e.Position) ?? 0;
+            var newPosition = _context.Expenses.Where(e => e.Reference == reference && e.UserId == _user.Id)
+                                       .Max(e => e.Position) ?? 0;
 
             return ++newPosition;
         }
@@ -596,8 +806,15 @@ namespace BudgetAPI.Services
 
         private static DateTime? GetFutureDueDate(Expenses sourceExpense, string sourceReference, string targetReference)
         {
+            DateTime? sourceDueDate = sourceExpense.DueDate;
+
+            if (!sourceDueDate.HasValue && sourceExpense.DueDay.HasValue)
+            {
+                sourceDueDate = DateTime.ParseExact(sourceReference, "yyyyMM", null);
+            }
+
             return ReferenceDateHelper.GetProportionalDate(
-                sourceExpense.DueDate,
+                sourceDueDate,
                 sourceReference,
                 targetReference,
                 sourceExpense.DueDay);
@@ -647,37 +864,84 @@ namespace BudgetAPI.Services
                 throw new ArgumentException("Referência inválida. O formato esperado é 'yyyyMM'.");
             }
 
-            string previousReference = DateTime.ParseExact(reference, "yyyyMM", null).AddMonths(-1).ToString("yyyyMM");
+            string previousReference = DateTime.ParseExact(reference, "yyyyMM", null)
+                                           .AddMonths(-1)
+                                           .ToString("yyyyMM");
 
-            List<Expenses> previousExpenses = await _context.Expenses.Where(e => e.UserId == _user.Id && e.Reference == previousReference)
-                                                                     .OrderBy(e => e.Position)
-                                                                     .ToListAsync();
+            List<Expenses> previousExpenses = await _context.Expenses
+                .Where(e => e.UserId == _user.Id && e.Reference == previousReference)
+                .OrderBy(e => e.Position)
+                .ToListAsync();
 
             if (!previousExpenses.Any())
             {
                 throw new InvalidOperationException("Nenhuma despesa encontrada para o mês anterior.");
             }
 
+            List<Expenses> currentExpenses = await _context.Expenses
+                .Where(e => e.UserId == _user.Id && e.Reference == reference)
+                .ToListAsync();
+
+            foreach (Expenses previousExpense in previousExpenses.Where(e => e.CardId == null && HasNextParcel(e)))
+            {
+                int nextParcelNumber = previousExpense.ParcelNumber!.Value + 1;
+
+                bool alreadyExists = currentExpenses.Any(e =>
+                    string.Equals(
+                        e.Description?.Trim(),
+                        previousExpense.Description?.Trim(),
+                        StringComparison.OrdinalIgnoreCase) &&
+                    e.ParcelNumber == nextParcelNumber &&
+                    e.Parcels == previousExpense.Parcels);
+
+                if (!alreadyExists)
+                {
+                    Expenses nextParcel = CreateNextParcelFromPreviousMonth(
+                        previousExpense,
+                        reference,
+                        previousExpense.Position);
+
+                    await FinancialResourceValidator.ValidateResourcesForCreateAsync(
+                        _context,
+                        _user.Id,
+                        nextParcel.CardId,
+                        nextParcel.AccountId);
+
+                    _context.Expenses.Add(nextParcel);
+                    currentExpenses.Add(nextParcel);
+                }
+            }
+
             foreach (Expenses previousExpense in previousExpenses)
             {
-                Expenses? expense = await _context.Expenses.Where(e => e.UserId == _user.Id &&
-                                                                       e.Reference == reference &&
-                                                                       e.Description == previousExpense.Description)
-                                                           .FirstOrDefaultAsync();
+                Expenses? expense = currentExpenses.FirstOrDefault(e =>
+                    IsSameExpenseFromPreviousMonth(e, previousExpense));
 
                 if (expense != null)
                 {
                     expense.Position = previousExpense.Position;
 
-                    if (expense.DueDate == null && previousExpense.DueDate != null)
+                    if (!expense.DueDate.HasValue &&
+                        (previousExpense.DueDate.HasValue || previousExpense.DueDay.HasValue))
                     {
-                        expense.DueDate = ReferenceDateHelper.GetProportionalDate(
-                            previousExpense.DueDate,
-                            previousExpense.Reference,
-                            reference,
-                            previousExpense.DueDay);
+                        expense.DueDate = GetFutureDueDate(
+                            previousExpense,
+                            previousReference,
+                            reference);
                     }
                 }
+            }
+
+            List<Expenses> ordered = currentExpenses.OrderBy(e => e.Position)
+                                                    .ThenBy(e => e.Description)
+                                                    .ThenBy(e => e.ParcelNumber)
+                                                    .ToList();
+
+            short position = 1;
+
+            foreach (Expenses expense in ordered)
+            {
+                expense.Position = position++;
             }
 
             await _context.SaveChangesAsync();
@@ -870,6 +1134,145 @@ namespace BudgetAPI.Services
             }
 
             return sourceExpense.ToPay;
+        }
+
+        private async Task<(int? CurrentRelatedId, List<Expenses> FutureExpenses)> GetFutureExpensesForRepeatAsync(
+            Expenses savedExpense,
+            string originalDescription)
+        {
+            int currentParcel  = savedExpense.ParcelNumber.GetValueOrDefault();
+            int totalParcels   = savedExpense.Parcels.GetValueOrDefault();
+            bool isInstallment = totalParcels > 1;
+
+            if (!isInstallment)
+            {
+                List<Expenses> futureExpenses = await _context.Expenses
+                    .Where(e =>
+                        e.UserId == _user.Id &&
+                        e.Id != savedExpense.Id &&
+                        e.Paid == 0 &&
+                        e.Description != null &&
+                        e.Description.Trim() == originalDescription &&
+                        string.Compare(e.Reference, savedExpense.Reference) > 0)
+                    .ToListAsync();
+
+                return (savedExpense.RelatedId, futureExpenses);
+            }
+
+            if (currentParcel <= 0 || currentParcel > totalParcels)
+            {
+                throw new InvalidOperationException(
+                    "O número da parcela atual é inválido para o total de parcelas informado.");
+            }
+
+            int relatedId = savedExpense.RelatedId ?? savedExpense.Id;
+
+            bool hasLinkedSequence = await _context.Expenses.AnyAsync(e =>
+                e.UserId == _user.Id &&
+                e.Id != savedExpense.Id &&
+                e.Parcels == totalParcels &&
+                (e.Id == relatedId || e.RelatedId == relatedId));
+
+            if (hasLinkedSequence)
+            {
+                List<Expenses> linkedFutureExpenses = await _context.Expenses
+                    .Where(e =>
+                        e.UserId == _user.Id &&
+                        e.Id != savedExpense.Id &&
+                        e.Paid == 0 &&
+                        e.RelatedId == relatedId &&
+                        e.ParcelNumber.HasValue &&
+                        e.ParcelNumber.Value > currentParcel &&
+                        e.Parcels == totalParcels)
+                    .OrderBy(e => e.ParcelNumber)
+                    .ToListAsync();
+
+                return (savedExpense.RelatedId, linkedFutureExpenses);
+            }
+
+            List<Expenses> legacyCandidates = await _context.Expenses
+                .Where(e =>
+                    e.UserId == _user.Id &&
+                    e.Id != savedExpense.Id &&
+                    e.Description != null &&
+                    e.Description.Trim() == originalDescription &&
+                    e.ParcelNumber.HasValue &&
+                    e.ParcelNumber.Value >= 1 &&
+                    e.ParcelNumber.Value <= totalParcels &&
+                    e.Parcels == totalParcels &&
+                    e.TotalToPay == savedExpense.TotalToPay)
+                .ToListAsync();
+
+            DateTime currentReferenceDate = DateTime.ParseExact(
+                savedExpense.Reference,
+                "yyyyMM",
+                null);
+
+            List<Expenses> legacySequence = legacyCandidates
+                .Where(e =>
+                {
+                    int monthDifference = e.ParcelNumber!.Value - currentParcel;
+
+                    string expectedReference = currentReferenceDate.AddMonths(monthDifference)
+                                                           .ToString("yyyyMM");
+
+                    return e.Reference == expectedReference;
+                })
+                .ToList();
+
+            List<(int Id, int ParcelNumber, string Reference)> sequenceRecords = legacySequence
+                .Select(e => (
+                    e.Id,
+                    e.ParcelNumber!.Value,
+                    e.Reference))
+                .ToList();
+
+            sequenceRecords.Add((
+                savedExpense.Id,
+                currentParcel,
+                savedExpense.Reference));
+
+            IGrouping<int, (int Id, int ParcelNumber, string Reference)>? duplicatedParcel =
+                sequenceRecords.GroupBy(e => e.ParcelNumber)
+                       .FirstOrDefault(group => group.Count() > 1);
+
+            if (duplicatedParcel != null)
+            {
+                throw new InvalidOperationException(
+                    "Não foi possível identificar com segurança a sequência legada. " +
+                    $"Existe mais de uma despesa correspondente à parcela {duplicatedParcel.Key}/{totalParcels}.");
+            }
+
+            bool hasFutureParcel = legacySequence.Any(e => e.ParcelNumber!.Value > currentParcel);
+
+            if (currentParcel < totalParcels && !hasFutureParcel)
+            {
+                throw new InvalidOperationException(
+                    "Não foi possível localizar as parcelas futuras desta despesa legada. " +
+                    "Nenhuma alteração foi aplicada aos próximos meses.");
+            }
+
+            (int Id, int ParcelNumber, string Reference) anchor = sequenceRecords
+                .OrderBy(e => e.ParcelNumber)
+                .ThenBy(e => e.Reference)
+                .ThenBy(e => e.Id)
+                .First();
+
+            foreach (Expenses item in legacySequence)
+            {
+                item.RelatedId = item.Id == anchor.Id ? null : anchor.Id;
+            }
+
+            int? currentRelatedId = savedExpense.Id == anchor.Id ? null : anchor.Id;
+
+            List<Expenses> legacyFutureExpenses = legacySequence
+                .Where(e =>
+                    e.Paid == 0 &&
+                    e.ParcelNumber!.Value > currentParcel)
+                .OrderBy(e => e.ParcelNumber)
+                .ToList();
+
+            return (currentRelatedId, legacyFutureExpenses);
         }
     }
 }

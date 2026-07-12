@@ -124,7 +124,11 @@ namespace BudgetAPI.Controllers
 
         // PUT: api/Expenses/5
         [HttpPut("{id}")]
-        public async Task<IActionResult> PutExpenses(int id, Expenses expense, bool repeatToNextMonths = false)
+        public async Task<IActionResult> PutExpenses(
+            int id,
+            Expenses expense,
+            bool repeatToNextMonths = false,
+            bool preserveFutureValues = false)
         {
             if (id != expense.Id || !_expenseService.ValidarUsuario(id))
             {
@@ -133,7 +137,10 @@ namespace BudgetAPI.Controllers
 
             try
             {
-                await _expenseService.PutExpenses(expense, repeatToNextMonths);
+                await _expenseService.PutExpenses(
+                    expense,
+                    repeatToNextMonths,
+                    preserveFutureValues);
             }
             catch (DbUpdateConcurrencyException dex)
             {
@@ -260,6 +267,20 @@ namespace BudgetAPI.Controllers
             try
             {
                 await _expenseService.OrderByPreviousMonth(reference);
+                return Ok();
+            }
+            catch (Exception ex)
+            {
+                return Problem(ex.Message + "\n\n" + ex.InnerException?.Message);
+            }
+        }
+
+        [HttpPost("RepeatPreviousMonth")]
+        public async Task<ActionResult> RepeatPreviousMonth([FromQuery] string reference)
+        {
+            try
+            {
+                await _expenseService.RepeatPreviousMonth(reference);
                 return Ok();
             }
             catch (Exception ex)
