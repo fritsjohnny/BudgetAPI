@@ -25,6 +25,7 @@ namespace BudgetAPI.Services
         Task PostCardsPostingsFromNotification(CardsPostings cardPosting);
         Task PostCardsPostingsWithParcelsFromNotification(CardsPostings cardPosting, bool repeat, int qtyMonths);
         Task DeleteCardsPostings(CardsPostings cardPosting);
+        Task ReorderPositionsByDate(int cardId, string reference);
         Task<int> SetPositions(List<CardsPostings> cardsPostings);
         bool ValidarUsuario(int cardPostingId);
         bool CardsPostingsExists(int id);
@@ -353,6 +354,12 @@ namespace BudgetAPI.Services
                     cardPosting.ExpenseId
                 };
 
+                List<(int CardId, string Reference)> affectedGroups = new()
+                {
+                    (savedCardPosting.CardId, savedCardPosting.Reference!),
+                    (cardPosting.CardId, cardPosting.Reference!)
+                };
+
                 string originalDescription =
                     NormalizeDescription(savedCardPosting.Description);
 
@@ -389,11 +396,14 @@ namespace BudgetAPI.Services
                     }
                 }
 
-                _context.Entry(cardPosting).State =
-                    EntityState.Modified;
-
                 if (futurePostings != null)
                 {
+                    affectedGroups.AddRange(
+                        futurePostings.Select(cp => (cp.CardId, cp.Reference!)));
+
+                    affectedGroups.AddRange(
+                        futurePostings.Select(cp => (cardPosting.CardId, cp.Reference!)));
+
                     expenseIdsToAdjust.AddRange(
                         futurePostings.Select(cp => cp.ExpenseId));
 
@@ -442,8 +452,18 @@ namespace BudgetAPI.Services
 
                         _context.Entry(item).State =
                             EntityState.Modified;
+
                     }
                 }
+
+                await AcquirePositionLocksAsync(affectedGroups);
+
+                _context.Entry(cardPosting).State =
+                    EntityState.Modified;
+
+                await _context.SaveChangesAsync();
+
+                await ReorderPositionGroupsByDateAsync(affectedGroups);
 
                 await _context.SaveChangesAsync();
 
@@ -511,8 +531,13 @@ namespace BudgetAPI.Services
                     savedCardPosting.CardId,
                     cardPosting.CardId);
 
-                _context.Entry(cardPosting).State =
-                    EntityState.Modified;
+                List<(int CardId, string Reference)> affectedGroups =
+                    GetGeneratedPositionGroups(cardPosting, repeat, qtyMonths);
+
+                affectedGroups.Add(
+                    (savedCardPosting.CardId, savedCardPosting.Reference!));
+
+                await AcquirePositionLocksAsync(affectedGroups);
 
                 List<CardsPostings> cardsPostingsList =
                     repeat
@@ -521,6 +546,9 @@ namespace BudgetAPI.Services
                             qtyMonths)
                         : await GenerateCardsPostingsAsync(
                             cardPosting);
+
+                _context.Entry(cardPosting).State =
+                    EntityState.Modified;
 
                 bool createsNewRecords =
                     cardsPostingsList.Skip(1).Any();
@@ -557,6 +585,10 @@ namespace BudgetAPI.Services
 
                 await _context.SaveChangesAsync();
 
+                await ReorderPositionGroupsByDateAsync(affectedGroups);
+
+                await _context.SaveChangesAsync();
+
                 await AjustarDespesasVinculadas(
                     previousExpenseId,
                     cardPosting.ExpenseId);
@@ -580,6 +612,10 @@ namespace BudgetAPI.Services
             try
             {
                 await PostCardsPostingsCoreAsync(cardPosting);
+
+                await ReorderPositionGroupsByDateAsync(new[] { (cardPosting.CardId, cardPosting.Reference!) });
+
+                await _context.SaveChangesAsync();
 
                 await transaction.CommitAsync();
             }
@@ -619,7 +655,13 @@ namespace BudgetAPI.Services
 
             try
             {
-                await PostCardsPostingsWithParcelsCoreAsync(cardPosting, repeat, qtyMonths);
+                List<CardsPostings> generatedPostings =
+                    await PostCardsPostingsWithParcelsCoreAsync(cardPosting, repeat, qtyMonths);
+
+                await ReorderPositionGroupsByDateAsync(
+                    generatedPostings.Select(cp => (cp.CardId, cp.Reference!)));
+
+                await _context.SaveChangesAsync();
 
                 await transaction.CommitAsync();
             }
@@ -630,12 +672,17 @@ namespace BudgetAPI.Services
             }
         }
 
-        private async Task PostCardsPostingsWithParcelsCoreAsync(CardsPostings cardPosting, bool repeat, int qtyMonths)
+        private async Task<List<CardsPostings>> PostCardsPostingsWithParcelsCoreAsync(CardsPostings cardPosting, bool repeat, int qtyMonths)
         {
             await FinancialResourceValidator.ValidateCardForCreateAsync(
                 _context,
                 _user.Id,
                 cardPosting.CardId);
+
+            List<(int CardId, string Reference)> generatedGroups =
+                GetGeneratedPositionGroups(cardPosting, repeat, qtyMonths);
+
+            await AcquirePositionLocksAsync(generatedGroups);
 
             List<CardsPostings>? cardsPostingsList = repeat ?
                                                      await RepeatCardsPostingsAsync(cardPosting, qtyMonths) :
@@ -668,6 +715,8 @@ namespace BudgetAPI.Services
 
             if (cardPosting.ExpenseId.HasValue)
                 await _expenseService.AjustarValorComBaseNaCategoria(cardPosting.ExpenseId.Value);
+
+            return cardsPostingsList;
         }
 
         public async Task PostCardsPostingsFromNotification(CardsPostings cardPosting)
@@ -735,7 +784,10 @@ namespace BudgetAPI.Services
                     bool hasSequence = provisioned.RelatedId.HasValue ||
                                await _context.CardsPostings.AnyAsync(cp => cp.Card!.UserId == _user.Id &&
                                                                           cp.Id != provisioned.Id &&
-                                                                          cp.RelatedId == rootId);
+                                                                           cp.RelatedId == rootId);
+
+                    await AcquirePositionLocksAsync(
+                        GetGeneratedPositionGroups(cardPosting, repeat, qtyMonths));
 
                     ApplyNotificationToProvisioned(provisioned, cardPosting);
 
@@ -835,32 +887,90 @@ namespace BudgetAPI.Services
             }
         }
 
+        public async Task ReorderPositionsByDate(int cardId, string reference)
+        {
+            if (cardId <= 0)
+            {
+                throw new ArgumentException("O cartão informado é inválido.", nameof(cardId));
+            }
+
+            if (string.IsNullOrWhiteSpace(reference))
+            {
+                throw new ArgumentException("A referência informada é inválida.", nameof(reference));
+            }
+
+            if (!ValidateCardAndUser(cardId))
+            {
+                throw new InvalidOperationException(
+                    "Cartão não encontrado para o usuário atual.");
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                await ReorderPositionGroupsByDateAsync(new[] { (cardId, reference) });
+
+                await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+
+                throw new Exception(
+                    $"Erro no CardPostingService.ReorderPositionsByDate: {ex.Message}",
+                    ex);
+            }
+        }
+
         public async Task<int> SetPositions(List<CardsPostings> cardsPostings)
         {
-            List<int> ids = cardsPostings.Select(cp => cp.Id)
-                                 .Distinct()
-                                 .ToList();
+            using var transaction = await _context.Database.BeginTransactionAsync();
 
-            List<CardsPostings> savedPostings = await _context.CardsPostings
-                                                      .Where(cp => ids.Contains(cp.Id) && cp.Card!.UserId == _user.Id)
-                                                      .ToListAsync();
-
-            if (savedPostings.Count != ids.Count)
+            try
             {
-                throw new Exception("Erro no CardPostingService.SetPositions: existem lançamentos inválidos para o usuário atual.");
-            }
+                List<int> ids = cardsPostings.Select(cp => cp.Id)
+                                             .Distinct()
+                                             .ToList();
 
-            foreach (CardsPostings savedPosting in savedPostings)
-            {
-                CardsPostings? requestPosting = cardsPostings.FirstOrDefault(cp => cp.Id == savedPosting.Id);
+                List<CardsPostings> savedPostings = await _context.CardsPostings
+                    .Where(cp => ids.Contains(cp.Id) && cp.Card!.UserId == _user.Id)
+                    .ToListAsync();
 
-                if (requestPosting != null)
+                if (savedPostings.Count != ids.Count)
                 {
-                    savedPosting.Position = requestPosting.Position;
+                    throw new InvalidOperationException(
+                        "Existem lançamentos inválidos para o usuário atual.");
                 }
-            }
 
-            return await _context.SaveChangesAsync();
+                await AcquirePositionLocksAsync(
+                    savedPostings.Select(cp => (cp.CardId, cp.Reference!)));
+
+                Dictionary<int, short?> requestedPositions = cardsPostings
+                    .GroupBy(cp => cp.Id)
+                    .ToDictionary(group => group.Key, group => group.First().Position);
+
+                foreach (CardsPostings savedPosting in savedPostings)
+                {
+                    savedPosting.Position = requestedPositions[savedPosting.Id];
+                }
+
+                int result = await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+
+                throw new Exception(
+                    $"Erro no CardPostingService.SetPositions: {ex.Message}",
+                    ex);
+            }
         }
 
         public bool CardsPostingsExists(int id)
@@ -881,16 +991,16 @@ namespace BudgetAPI.Services
         }
 
         /// <summary>
-        /// Reserva de forma segura a próxima posição para um lançamento de cartão em uma referência.
-        /// Utiliza sp_getapplock para evitar que requisições concorrentes calculem o mesmo MAX(Position).
-        /// Deve ser chamado dentro de uma transação já aberta, que permanecerá segurando o lock até o Commit/Rollback.
+        /// Adquire o sp_getapplock (Exclusive, LockOwner=Transaction) para o recurso de posições de
+        /// CardsPostings de um usuário/cartão/referência específicos. Deve ser chamado dentro de uma
+        /// transação já aberta, que permanecerá segurando o lock até o Commit/Rollback.
         /// </summary>
-        private async Task<short> GetNextPositionAsync(string reference, int cardId)
+        private async Task AcquirePositionLockAsync(int cardId, string reference)
         {
             if (_context.Database.CurrentTransaction == null)
             {
                 throw new InvalidOperationException(
-                    "GetNextPositionAsync deve ser executado dentro de uma transação ativa.");
+                    "AcquirePositionLockAsync deve ser executado dentro de uma transação ativa.");
             }
 
             string lockResource = $"CardsPostings.Position:{_user.Id}:{cardId}:{reference}";
@@ -946,6 +1056,42 @@ namespace BudgetAPI.Services
                         $"o tempo limite. Código retornado: {lockResult}.");
                 }
             }
+        }
+
+        private async Task AcquirePositionLocksAsync(
+            IEnumerable<(int CardId, string Reference)> groups)
+        {
+            if (_context.Database.CurrentTransaction == null)
+            {
+                throw new InvalidOperationException(
+                    "AcquirePositionLocksAsync deve ser executado dentro de uma transação ativa.");
+            }
+
+            List<(int CardId, string Reference)> orderedGroups = groups
+                .Where(group =>
+                    group.CardId > 0 &&
+                    !string.IsNullOrWhiteSpace(group.Reference))
+                .Distinct()
+                .OrderBy(group => group.CardId)
+                .ThenBy(group => group.Reference, StringComparer.Ordinal)
+                .ToList();
+
+            foreach ((int CardId, string Reference) group in orderedGroups)
+            {
+                await AcquirePositionLockAsync(
+                    group.CardId,
+                    group.Reference);
+            }
+        }
+
+        /// <summary>
+        /// Reserva de forma segura a próxima posição para um lançamento de cartão em uma referência.
+        /// Utiliza sp_getapplock (via AcquirePositionLockAsync) para evitar que requisições concorrentes
+        /// calculem o mesmo MAX(Position). Deve ser chamado dentro de uma transação já aberta.
+        /// </summary>
+        private async Task<short> GetNextPositionAsync(string reference, int cardId)
+        {
+            await AcquirePositionLockAsync(cardId, reference);
 
             short currentMaxPosition = await _context.CardsPostings
                 .Where(c => c.Reference == reference && c.CardId == cardId && c.Card!.UserId == _user.Id)
@@ -960,6 +1106,103 @@ namespace BudgetAPI.Services
             }
 
             return (short)(currentMaxPosition + 1);
+        }
+
+        /// <summary>
+        /// Recalcula sequencialmente as posições de todos os lançamentos de um cartão/referência do
+        /// usuário atual, ordenando por Date, posição anterior (desempate) e Id. Não abre nem finaliza
+        /// transação/SaveChanges: deve ser chamado dentro de uma transação já aberta pelo método público
+        /// chamador, que também deve persistir e commitar.
+        /// </summary>
+        private async Task ReorderPositionsByDateCoreAsync(int cardId, string reference)
+        {
+            if (_context.Database.CurrentTransaction == null)
+            {
+                throw new InvalidOperationException(
+                    "ReorderPositionsByDateCoreAsync deve ser executado dentro de uma transação ativa.");
+            }
+
+            await AcquirePositionLockAsync(cardId, reference);
+
+            List<CardsPostings> postings = await _context.CardsPostings
+                .Where(cp => cp.CardId == cardId && cp.Reference == reference && cp.Card!.UserId == _user.Id)
+                .OrderBy(cp => cp.Date)
+                .ThenBy(cp => cp.Position)
+                .ThenBy(cp => cp.Id)
+                .ToListAsync();
+
+            int maxCapacity = short.MaxValue + 1;
+
+            if (postings.Count > maxCapacity)
+            {
+                throw new InvalidOperationException(
+                    $"Não é possível reordenar as posições para o cartão {cardId}, referência {reference}. " +
+                    $"Quantidade de lançamentos encontrada: {postings.Count}. " +
+                    $"Limite permitido: {maxCapacity} lançamentos (posições de 0 a {short.MaxValue}).");
+            }
+
+            for (int index = 0; index < postings.Count; index++)
+            {
+                short newPosition = checked((short)index);
+
+                if (postings[index].Position != newPosition)
+                {
+                    postings[index].Position = newPosition;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Reordena vários grupos de CardId/Reference afetados por uma mesma operação, removendo
+        /// duplicados e ignorando referências vazias, sempre processando em ordem determinística
+        /// (CardId, depois Reference) para reduzir o risco de deadlock entre locks.
+        /// </summary>
+        private async Task ReorderPositionGroupsByDateAsync(IEnumerable<(int CardId, string Reference)> groups)
+        {
+            List<(int CardId, string Reference)> distinctGroups = groups
+                .Where(g =>
+                    g.CardId > 0 &&
+                    !string.IsNullOrWhiteSpace(g.Reference))
+                .Distinct()
+                .OrderBy(g => g.CardId)
+                .ThenBy(g => g.Reference, StringComparer.Ordinal)
+                .ToList();
+
+            foreach ((int CardId, string Reference) group in distinctGroups)
+            {
+                await ReorderPositionsByDateCoreAsync(group.CardId, group.Reference);
+            }
+        }
+
+        private static List<(int CardId, string Reference)> GetGeneratedPositionGroups(
+            CardsPostings cardPosting,
+            bool repeat,
+            int qtyMonths)
+        {
+            List<(int CardId, string Reference)> groups = new();
+            string reference = cardPosting.Reference!;
+
+            if (repeat)
+            {
+                for (int i = 0; i <= qtyMonths; i++)
+                {
+                    groups.Add((cardPosting.CardId, reference));
+                    reference = GetNewReference(reference);
+                }
+
+                return groups;
+            }
+
+            int parcelNumber = cardPosting.ParcelNumber ?? 1;
+            int totalParcels = cardPosting.Parcels ?? 1;
+
+            for (int i = parcelNumber; i <= totalParcels; i++)
+            {
+                groups.Add((cardPosting.CardId, reference));
+                reference = GetNewReference(reference);
+            }
+
+            return groups;
         }
 
         private async Task<List<CardsPostings>> GenerateCardsPostingsAsync(CardsPostings cardPosting)

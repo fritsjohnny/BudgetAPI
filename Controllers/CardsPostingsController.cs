@@ -93,6 +93,28 @@ namespace BudgetAPI.Controllers
             return Ok();
         }
 
+        [HttpPut("ReorderByDate/{cardId}/{reference}")]
+        public async Task<IActionResult> ReorderPositionsByDate(int cardId, string reference)
+        {
+            if (cardId <= 0 ||
+                string.IsNullOrWhiteSpace(reference) ||
+                !_cardPostingService.ValidateCardAndUser(cardId))
+            {
+                return BadRequest();
+            }
+
+            try
+            {
+                await _cardPostingService.ReorderPositionsByDate(cardId, reference);
+
+                return Ok();
+            }
+            catch (Exception ex)
+            {
+                return Problem($"Erro ao reordenar lançamentos do cartão: {ex.Message}");
+            }
+        }
+
         // PUT: api/CardsPostings/5
         [HttpPut("{id}")]
         public async Task<IActionResult> PutCardsPostings(int id, CardsPostings cardsPostings, bool repeatToNextMonths = false, bool preserveFutureValues = false)
