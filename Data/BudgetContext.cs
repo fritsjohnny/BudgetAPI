@@ -24,6 +24,22 @@ namespace BudgetAPI.Data
             modelBuilder.Entity<AccountsYieldsDTO>().ToTable("GetAccountsYields").HasNoKey();
             modelBuilder.Entity<AnnualSavingsMonthProjectionDTO>().ToTable("GetAnnualSavings").HasNoKey();
             modelBuilder.Entity<AnnualSavingsConsolidatedDTO>().ToTable("GetAnnualSavingsConsolidated").HasNoKey();
+
+            modelBuilder.Entity<CardsInvoiceClosing>(entity =>
+            {
+                entity.ToTable("CardsInvoiceClosings", "dbo");
+                entity.HasKey(closing => closing.Id);
+                entity.Property(closing => closing.Reference).HasColumnType("varchar(6)").HasMaxLength(6).IsRequired();
+                entity.Property(closing => closing.ClosingDate).HasColumnType("date").IsRequired();
+                entity.Property(closing => closing.IsEstimated).IsRequired();
+                entity.Property(closing => closing.CreatedAt).HasColumnType("datetime2(0)").IsRequired();
+                entity.Property(closing => closing.UpdatedAt).HasColumnType("datetime2(0)").IsRequired();
+                entity.HasIndex(closing => new { closing.CardId, closing.Reference }).IsUnique();
+                entity.HasOne(closing => closing.Card)
+                    .WithMany()
+                    .HasForeignKey(closing => closing.CardId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
             
             modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetAccountTotals), new[] { typeof(int), typeof(string), typeof(int) }));
             modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetAccountsSummary), new[] { typeof(string), typeof(int) }));
@@ -60,5 +76,6 @@ namespace BudgetAPI.Data
         public DbSet<Categories> Categories { get; set; }
         public DbSet<AccountsApplications> AccountsApplications { get; set; }
         public DbSet<AccountYieldRanges> AccountYieldRanges { get; set; }
+        public DbSet<CardsInvoiceClosing> CardsInvoiceClosings { get; set; } = null!;
     }
 }

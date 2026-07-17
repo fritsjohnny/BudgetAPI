@@ -117,7 +117,7 @@ namespace BudgetAPI.Controllers
 
         // PUT: api/CardsPostings/5
         [HttpPut("{id}")]
-        public async Task<IActionResult> PutCardsPostings(int id, CardsPostings cardsPostings, bool repeatToNextMonths = false, bool preserveFutureValues = false)
+        public async Task<IActionResult> PutCardsPostings(int id, CardsPostings cardsPostings, bool repeatToNextMonths = false, bool preserveFutureValues = false, bool allowClosedInvoiceOperation = false)
         {
             if (id != cardsPostings.Id || !_cardPostingService.ValidarUsuario(id))
             {
@@ -126,7 +126,7 @@ namespace BudgetAPI.Controllers
 
             try
             {
-                await _cardPostingService.PutCardsPostings(cardsPostings, repeatToNextMonths, preserveFutureValues);
+                await _cardPostingService.PutCardsPostings(cardsPostings, repeatToNextMonths, preserveFutureValues, allowClosedInvoiceOperation);
             }
             catch (DbUpdateConcurrencyException dex)
             {
@@ -136,6 +136,10 @@ namespace BudgetAPI.Controllers
                 }
 
                 return Problem(dex.Message);
+            }
+            catch (ClosedInvoiceOperationException ex)
+            {
+                return Conflict(new { message = ex.Message });
             }
             catch (Exception ex)
             {
@@ -154,7 +158,7 @@ namespace BudgetAPI.Controllers
         }
 
         [HttpPut("AllParcels/{id}")]
-        public async Task<IActionResult> PutCardsPostingsWithParcels(int id, CardsPostings cardsPostings, bool repeat, int qtyMonths)
+        public async Task<IActionResult> PutCardsPostingsWithParcels(int id, CardsPostings cardsPostings, bool repeat, int qtyMonths, bool allowClosedInvoiceOperation = false)
         {
             if (id != cardsPostings.Id || !_cardPostingService.ValidarUsuario(id))
             {
@@ -163,7 +167,11 @@ namespace BudgetAPI.Controllers
 
             try
             {
-                await _cardPostingService.PutCardsPostingsWithParcels(cardsPostings, repeat, qtyMonths);
+                await _cardPostingService.PutCardsPostingsWithParcels(cardsPostings, repeat, qtyMonths, allowClosedInvoiceOperation);
+            }
+            catch (ClosedInvoiceOperationException ex)
+            {
+                return Conflict(new { message = ex.Message });
             }
             catch (Exception ex)
             {
@@ -183,7 +191,7 @@ namespace BudgetAPI.Controllers
 
         // POST: api/CardsPostings
         [HttpPost]
-        public async Task<ActionResult<CardsPostingsDTO?>> PostCardsPostings(CardsPostings cardsPostings)
+        public async Task<ActionResult<CardsPostingsDTO?>> PostCardsPostings(CardsPostings cardsPostings, bool allowClosedInvoiceOperation = false)
         {
             if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId))
             {
@@ -192,9 +200,13 @@ namespace BudgetAPI.Controllers
 
             try
             {
-                await _cardPostingService.PostCardsPostings(cardsPostings);
+                await _cardPostingService.PostCardsPostings(cardsPostings, allowClosedInvoiceOperation);
 
                 return await GetCardsPostings(cardsPostings.Id);
+            }
+            catch (ClosedInvoiceOperationException ex)
+            {
+                return Conflict(new { message = ex.Message });
             }
             catch (Exception ex)
             {
@@ -209,7 +221,7 @@ namespace BudgetAPI.Controllers
         }
 
         [HttpPost("FromNotification")]
-        public async Task<ActionResult<CardsPostingsDTO?>> PostCardsPostingsFromNotification(CardsPostings cardsPostings)
+        public async Task<ActionResult<CardsPostingsDTO?>> PostCardsPostingsFromNotification(CardsPostings cardsPostings, bool allowClosedInvoiceOperation = false)
         {
             if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId))
             {
@@ -218,9 +230,13 @@ namespace BudgetAPI.Controllers
 
             try
             {
-                await _cardPostingService.PostCardsPostingsFromNotification(cardsPostings);
+                await _cardPostingService.PostCardsPostingsFromNotification(cardsPostings, allowClosedInvoiceOperation);
 
                 return await GetCardsPostings(cardsPostings.Id);
+            }
+            catch (ClosedInvoiceOperationException ex)
+            {
+                return Conflict(new { message = ex.Message });
             }
             catch (Exception ex)
             {
@@ -235,7 +251,7 @@ namespace BudgetAPI.Controllers
         }
 
         [HttpPost("FromNotification/AllParcels")]
-        public async Task<ActionResult<CardsPostingsDTO?>> PostCardsPostingsWithParcelsFromNotification(CardsPostings cardsPostings, bool repeat, int qtyMonths)
+        public async Task<ActionResult<CardsPostingsDTO?>> PostCardsPostingsWithParcelsFromNotification(CardsPostings cardsPostings, bool repeat, int qtyMonths, bool allowClosedInvoiceOperation = false)
         {
             if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId))
             {
@@ -244,9 +260,13 @@ namespace BudgetAPI.Controllers
 
             try
             {
-                await _cardPostingService.PostCardsPostingsWithParcelsFromNotification(cardsPostings, repeat, qtyMonths);
+                await _cardPostingService.PostCardsPostingsWithParcelsFromNotification(cardsPostings, repeat, qtyMonths, allowClosedInvoiceOperation);
 
                 return await GetCardsPostings(cardsPostings.Id);
+            }
+            catch (ClosedInvoiceOperationException ex)
+            {
+                return Conflict(new { message = ex.Message });
             }
             catch (Exception ex)
             {
@@ -261,7 +281,7 @@ namespace BudgetAPI.Controllers
         }
 
         [HttpPost("AllParcels")]
-        public async Task<ActionResult<CardsPostingsDTO?>> PostCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths)
+        public async Task<ActionResult<CardsPostingsDTO?>> PostCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths, bool allowClosedInvoiceOperation = false)
         {
             if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId))
             {
@@ -270,9 +290,13 @@ namespace BudgetAPI.Controllers
 
             try
             {
-                await _cardPostingService.PostCardsPostingsWithParcels(cardsPostings, repeat, qtyMonths);
+                await _cardPostingService.PostCardsPostingsWithParcels(cardsPostings, repeat, qtyMonths, allowClosedInvoiceOperation);
 
                 return await GetCardsPostings(cardsPostings.Id);
+            }
+            catch (ClosedInvoiceOperationException ex)
+            {
+                return Conflict(new { message = ex.Message });
             }
             catch (Exception ex)
             {
@@ -288,7 +312,7 @@ namespace BudgetAPI.Controllers
 
         // DELETE: api/CardsPostings/5
         [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteCardsPostings(int id)
+        public async Task<IActionResult> DeleteCardsPostings(int id, bool allowClosedInvoiceOperation = false)
         {
             CardsPostings? cardPosting = await _cardPostingService.GetCardsPostings(id).FirstOrDefaultAsync();
 
@@ -299,7 +323,11 @@ namespace BudgetAPI.Controllers
 
             try
             {
-                await _cardPostingService.DeleteCardsPostings(cardPosting);
+                await _cardPostingService.DeleteCardsPostings(cardPosting, allowClosedInvoiceOperation);
+            }
+            catch (ClosedInvoiceOperationException ex)
+            {
+                return Conflict(new { message = ex.Message });
             }
             catch (Exception ex)
             {
@@ -313,6 +341,37 @@ namespace BudgetAPI.Controllers
             }
 
             return Ok();
+        }
+
+        [HttpPost("{id}/ConvertToExpense")]
+        public async Task<ActionResult<Expenses>> ConvertToExpense(
+            int id,
+            bool allowClosedInvoiceOperation = false)
+        {
+            try
+            {
+                Expenses expense = await _cardPostingService.ConvertToExpenseAsync(
+                    id,
+                    allowClosedInvoiceOperation);
+
+                return Ok(expense);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { message = ex.Message });
+            }
+            catch (ClosedInvoiceOperationException ex)
+            {
+                return Conflict(new { message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return Problem(ex.Message, statusCode: StatusCodes.Status500InternalServerError);
+            }
         }
     }
 }

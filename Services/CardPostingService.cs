@@ -18,13 +18,14 @@ namespace BudgetAPI.Services
         IQueryable<CardsPostingsPeople> GetCardsPostingsPeople(int cardId, string reference);
         IQueryable<CardsPostingsDTO> GetCardsPostingsByReferences(string initialReference, string finalReference, int categoryId, bool others);
         CardsPostingsPeople GetCardsPostingsByPeopleId(int? peopleId, string reference, int cardId);
-        Task PutCardsPostings(CardsPostings cardPosting, bool repeatToNextMonths = false, bool preserveFutureValues = false);
-        Task PutCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths);
-        Task PostCardsPostings(CardsPostings cardPosting);
-        Task PostCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths);
-        Task PostCardsPostingsFromNotification(CardsPostings cardPosting);
-        Task PostCardsPostingsWithParcelsFromNotification(CardsPostings cardPosting, bool repeat, int qtyMonths);
-        Task DeleteCardsPostings(CardsPostings cardPosting);
+        Task PutCardsPostings(CardsPostings cardPosting, bool repeatToNextMonths = false, bool preserveFutureValues = false, bool allowClosedInvoiceOperation = false);
+        Task PutCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths, bool allowClosedInvoiceOperation = false);
+        Task PostCardsPostings(CardsPostings cardPosting, bool allowClosedInvoiceOperation = false);
+        Task PostCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths, bool allowClosedInvoiceOperation = false);
+        Task PostCardsPostingsFromNotification(CardsPostings cardPosting, bool allowClosedInvoiceOperation = false);
+        Task PostCardsPostingsWithParcelsFromNotification(CardsPostings cardPosting, bool repeat, int qtyMonths, bool allowClosedInvoiceOperation = false);
+        Task DeleteCardsPostings(CardsPostings cardPosting, bool allowClosedInvoiceOperation = false);
+        Task<Expenses> ConvertToExpenseAsync(int cardPostingId, bool allowClosedInvoiceOperation = false);
         Task ReorderPositionsByDate(int cardId, string reference);
         Task<int> SetPositions(List<CardsPostings> cardsPostings);
         bool ValidarUsuario(int cardPostingId);
@@ -39,12 +40,14 @@ namespace BudgetAPI.Services
         private readonly Users _user;
 
         private readonly IExpenseService _expenseService;
+        private readonly ICardsInvoiceClosingService _invoiceClosingService;
 
-        public CardPostingService(BudgetContext context, IHttpContextAccessor httpContextAccessor, IExpenseService expenseService)
+        public CardPostingService(BudgetContext context, IHttpContextAccessor httpContextAccessor, IExpenseService expenseService, ICardsInvoiceClosingService invoiceClosingService)
         {
             _context        = context;
             _user           = httpContextAccessor.HttpContext!.Items["User"] as Users ?? new Users();
             _expenseService = expenseService;
+            _invoiceClosingService = invoiceClosingService;
         }
 
         // Normaliza descrições: trim, reduzir múltiplos espaços para um
@@ -323,7 +326,7 @@ namespace BudgetAPI.Services
             return cardsPostingPeople;
         }
 
-        public async Task PutCardsPostings(CardsPostings cardPosting, bool repeatToNextMonths = false, bool preserveFutureValues = false)
+        public async Task PutCardsPostings(CardsPostings cardPosting, bool repeatToNextMonths = false, bool preserveFutureValues = false, bool allowClosedInvoiceOperation = false)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
 
@@ -407,6 +410,10 @@ namespace BudgetAPI.Services
                     expenseIdsToAdjust.AddRange(
                         futurePostings.Select(cp => cp.ExpenseId));
 
+                    await _invoiceClosingService.ValidateOperationAsync(
+                        affectedGroups,
+                        allowClosedInvoiceOperation);
+
                     bool isInstallment =
                         savedCardPosting.Parcels.GetValueOrDefault() > 1;
 
@@ -456,6 +463,13 @@ namespace BudgetAPI.Services
                     }
                 }
 
+                if (futurePostings == null)
+                {
+                    await _invoiceClosingService.ValidateOperationAsync(
+                        affectedGroups,
+                        allowClosedInvoiceOperation);
+                }
+
                 await AcquirePositionLocksAsync(affectedGroups);
 
                 _context.Entry(cardPosting).State =
@@ -476,13 +490,16 @@ namespace BudgetAPI.Services
             {
                 await transaction.RollbackAsync();
 
+                if (ex is ClosedInvoiceOperationException)
+                    throw;
+
                 throw new Exception(
                     $"Erro no CardPostingService.PutCardsPostings: {ex.Message}",
                     ex);
             }
         }
 
-        public async Task PutCardsPostingsWithParcels(CardsPostings cardPosting, bool repeat, int qtyMonths)
+        public async Task PutCardsPostingsWithParcels(CardsPostings cardPosting, bool repeat, int qtyMonths, bool allowClosedInvoiceOperation = false)
         {
             using var transaction =
                 await _context.Database.BeginTransactionAsync();
@@ -536,6 +553,10 @@ namespace BudgetAPI.Services
 
                 affectedGroups.Add(
                     (savedCardPosting.CardId, savedCardPosting.Reference!));
+
+                await _invoiceClosingService.ValidateOperationAsync(
+                    affectedGroups,
+                    allowClosedInvoiceOperation);
 
                 await AcquirePositionLocksAsync(affectedGroups);
 
@@ -599,14 +620,21 @@ namespace BudgetAPI.Services
             {
                 await transaction.RollbackAsync();
 
+                if (ex is ClosedInvoiceOperationException)
+                    throw;
+
                 throw new Exception(
                     $"Erro no CardPostingService.PutCardsPostingsWithParcels: {ex.Message}",
                     ex);
             }
         }
 
-        public async Task PostCardsPostings(CardsPostings cardPosting)
+        public async Task PostCardsPostings(CardsPostings cardPosting, bool allowClosedInvoiceOperation = false)
         {
+            await _invoiceClosingService.ValidateOperationAsync(
+                new[] { (cardPosting.CardId, cardPosting.Reference!) },
+                allowClosedInvoiceOperation);
+
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
@@ -622,6 +650,8 @@ namespace BudgetAPI.Services
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
+                if (ex is ClosedInvoiceOperationException)
+                    throw;
                 throw new Exception($"Erro no CardPostingService.PostCardsPostings: {ex.Message}", ex);
             }
         }
@@ -649,8 +679,12 @@ namespace BudgetAPI.Services
                 await _expenseService.AjustarValorComBaseNaCategoria(cardPosting.ExpenseId.Value);
         }
 
-        public async Task PostCardsPostingsWithParcels(CardsPostings cardPosting, bool repeat, int qtyMonths)
+        public async Task PostCardsPostingsWithParcels(CardsPostings cardPosting, bool repeat, int qtyMonths, bool allowClosedInvoiceOperation = false)
         {
+            await _invoiceClosingService.ValidateOperationAsync(
+                GetGeneratedPositionGroups(cardPosting, repeat, qtyMonths),
+                allowClosedInvoiceOperation);
+
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
@@ -668,6 +702,8 @@ namespace BudgetAPI.Services
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
+                if (ex is ClosedInvoiceOperationException)
+                    throw;
                 throw new Exception($"Erro no CardPostingService.PostCardsPostingsWithParcels: {ex.Message}", ex);
             }
         }
@@ -719,8 +755,12 @@ namespace BudgetAPI.Services
             return cardsPostingsList;
         }
 
-        public async Task PostCardsPostingsFromNotification(CardsPostings cardPosting)
+        public async Task PostCardsPostingsFromNotification(CardsPostings cardPosting, bool allowClosedInvoiceOperation = false)
         {
+            await _invoiceClosingService.ValidateOperationAsync(
+                new[] { (cardPosting.CardId, cardPosting.Reference!) },
+                allowClosedInvoiceOperation);
+
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
@@ -756,11 +796,13 @@ namespace BudgetAPI.Services
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
+                if (ex is ClosedInvoiceOperationException)
+                    throw;
                 throw new Exception($"Erro no CardPostingService.PostCardsPostingsFromNotification: {ex.Message}", ex);
             }
         }
 
-        public async Task PostCardsPostingsWithParcelsFromNotification(CardsPostings cardPosting, bool repeat, int qtyMonths)
+        public async Task PostCardsPostingsWithParcelsFromNotification(CardsPostings cardPosting, bool repeat, int qtyMonths, bool allowClosedInvoiceOperation = false)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
 
@@ -771,6 +813,15 @@ namespace BudgetAPI.Services
                 cardPosting.Provisioned = false;
 
                 CardsPostings? provisioned = await FindProvisionedPostingAsync(cardPosting);
+
+                List<(int CardId, string Reference)> affectedGroups =
+                    GetGeneratedPositionGroups(cardPosting, repeat, qtyMonths);
+                if (provisioned is not null)
+                    affectedGroups.Add((provisioned.CardId, provisioned.Reference!));
+
+                await _invoiceClosingService.ValidateOperationAsync(
+                    affectedGroups,
+                    allowClosedInvoiceOperation);
 
                 if (provisioned == null)
                 {
@@ -854,25 +905,27 @@ namespace BudgetAPI.Services
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
+                if (ex is ClosedInvoiceOperationException)
+                    throw;
                 throw new Exception($"Erro no CardPostingService.PostCardsPostingsWithParcelsFromNotification: {ex.Message}", ex);
             }
         }
 
-        public async Task DeleteCardsPostings(CardsPostings cardPosting)
+        public async Task DeleteCardsPostings(CardsPostings cardPosting, bool allowClosedInvoiceOperation = false)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
             {
-                List<CardsPostings> relatedCardsPostings = await _context.CardsPostings.Where(cp => cp.RelatedId == cardPosting.Id && cp.Card!.UserId == _user.Id)
-                                                                                       .ToListAsync();
+                List<CardsPostings> postingsToDelete =
+                    await GetPostingsToDeleteAsync(cardPosting.Id);
 
-                List<int?> expenseIdsToAdjust = relatedCardsPostings.Select(cp => cp.ExpenseId).ToList();
+                await _invoiceClosingService.ValidateOperationAsync(
+                    GetAffectedGroups(postingsToDelete),
+                    allowClosedInvoiceOperation);
 
-                expenseIdsToAdjust.Add(cardPosting.ExpenseId);
-
-                _context.CardsPostings.RemoveRange(relatedCardsPostings);
-                _context.CardsPostings.Remove(cardPosting);
+                List<int?> expenseIdsToAdjust = GetExpenseIds(postingsToDelete);
+                RemovePostings(postingsToDelete);
 
                 await _context.SaveChangesAsync();
 
@@ -883,9 +936,129 @@ namespace BudgetAPI.Services
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
+                if (ex is ClosedInvoiceOperationException)
+                    throw;
                 throw new Exception($"Erro no CardPostingService.DeleteCardsPostings: {ex.Message}", ex);
             }
         }
+
+        public async Task<Expenses> ConvertToExpenseAsync(
+            int cardPostingId,
+            bool allowClosedInvoiceOperation = false)
+        {
+            if (cardPostingId <= 0)
+                throw new ArgumentException("O identificador do lançamento deve ser maior que zero.", nameof(cardPostingId));
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                List<CardsPostings> postingsToDelete =
+                    await GetPostingsToDeleteAsync(cardPostingId);
+                CardsPostings source = postingsToDelete[0];
+
+                await _invoiceClosingService.ValidateOperationAsync(
+                    GetAffectedGroups(postingsToDelete),
+                    allowClosedInvoiceOperation);
+
+                if (source.CategoryId.HasValue &&
+                    !await _context.Categories.AnyAsync(category =>
+                        category.Id == source.CategoryId.Value &&
+                        category.UserId == _user.Id))
+                {
+                    throw new ArgumentException("A categoria do lançamento não pertence ao usuário atual.");
+                }
+
+                if (source.PeopleId.HasValue &&
+                    !await _context.People.AnyAsync(person =>
+                        person.Id == source.PeopleId.Value &&
+                        person.UserId == _user.Id))
+                {
+                    throw new ArgumentException("A pessoa do lançamento não pertence ao usuário atual.");
+                }
+
+                short nextPosition = (short)((await _context.Expenses
+                    .Where(expense => expense.UserId == _user.Id && expense.Reference == source.Reference)
+                    .MaxAsync(expense => (short?)expense.Position) ?? 0) + 1);
+
+                var expense = new Expenses
+                {
+                    UserId = _user.Id,
+                    Reference = source.Reference!,
+                    Position = nextPosition,
+                    Description = source.Description,
+                    ToPay = source.Amount,
+                    TotalToPay = source.Amount,
+                    Paid = 0,
+                    DueDate = source.DueDate,
+                    CategoryId = source.CategoryId,
+                    PeopleId = source.PeopleId,
+                    ParcelNumber = source.ParcelNumber,
+                    Parcels = source.Parcels,
+                    Note = source.Note,
+                    Fixed = source.Fixed
+                };
+
+                await FinancialResourceValidator.ValidateResourcesForCreateAsync(
+                    _context,
+                    _user.Id,
+                    expense.CardId,
+                    expense.AccountId);
+
+                _context.Expenses.Add(expense);
+                await _context.SaveChangesAsync();
+
+                List<int?> previousExpenseIds = GetExpenseIds(postingsToDelete);
+                RemovePostings(postingsToDelete);
+                await _context.SaveChangesAsync();
+
+                await AjustarDespesasVinculadas(previousExpenseIds.ToArray());
+                await transaction.CommitAsync();
+                return expense;
+            }
+            catch (ClosedInvoiceOperationException)
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        private async Task<List<CardsPostings>> GetPostingsToDeleteAsync(int cardPostingId)
+        {
+            CardsPostings? mainPosting = await _context.CardsPostings
+                .Include(posting => posting.Card)
+                .FirstOrDefaultAsync(posting =>
+                    posting.Id == cardPostingId &&
+                    posting.Card!.UserId == _user.Id);
+
+            if (mainPosting is null)
+                throw new KeyNotFoundException("Lançamento de cartão não encontrado para o usuário atual.");
+
+            List<CardsPostings> relatedPostings = await _context.CardsPostings
+                .Include(posting => posting.Card)
+                .Where(posting =>
+                    posting.RelatedId == mainPosting.Id &&
+                    posting.Card!.UserId == _user.Id)
+                .ToListAsync();
+
+            relatedPostings.Insert(0, mainPosting);
+            return relatedPostings;
+        }
+
+        private static IEnumerable<(int CardId, string Reference)> GetAffectedGroups(
+            IEnumerable<CardsPostings> postings) =>
+            postings.Select(posting => (posting.CardId, posting.Reference!)).Distinct();
+
+        private static List<int?> GetExpenseIds(IEnumerable<CardsPostings> postings) =>
+            postings.Select(posting => posting.ExpenseId).Distinct().ToList();
+
+        private void RemovePostings(IEnumerable<CardsPostings> postings) =>
+            _context.CardsPostings.RemoveRange(postings);
 
         public async Task ReorderPositionsByDate(int cardId, string reference)
         {
