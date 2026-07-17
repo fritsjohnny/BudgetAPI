@@ -3,6 +3,7 @@ using BudgetAPI.Data;
 using BudgetAPI.Helpers;
 using BudgetAPI.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace BudgetAPI.Services
 {
@@ -178,7 +179,8 @@ namespace BudgetAPI.Services
         {
             return _context.CardsPostings.Include(c => c.Card)
                                          .Where(c => c.Card!.UserId == _user.Id)
-                                         .OrderBy(c => c.Position);
+                                         .OrderBy(c => c.Position)
+                                         .ThenBy(c => c.Id);
         }
 
         public IQueryable<CardsPostings> GetCardsPostings(int id)
@@ -237,6 +239,7 @@ namespace BudgetAPI.Services
                                                                                 .Include(c => c.People)
                                                                                 .Where(c => (cardId == 0 || c.CardId == cardId) && c.Reference == reference && c.Card!.UserId == _user.Id)
                                                                                 .OrderBy(c => c.Position)
+                                                                                .ThenBy(c => c.Id)
                                                                                 .Select(c => CardPostingToDTO(c));
 
             return cardsPostings;
@@ -253,6 +256,7 @@ namespace BudgetAPI.Services
                                                                                             (others == false || c.Others == others) &&
                                                                                             c.Card!.UserId == _user.Id)
                                                                                 .OrderBy(c => c.Position)
+                                                                                .ThenBy(c => c.Id)
                                                                                 .Select(c => CardPostingToDTO(c));
 
             return cardsPostings;
@@ -262,7 +266,8 @@ namespace BudgetAPI.Services
         {
             IOrderedQueryable<CardsPostings>? cardsPostings = _context.CardsPostings.Include(c => c.Card)
                                                                                     .Where(c => c.PeopleId == peopleId && c.Reference == reference && c.Card!.UserId == _user.Id)
-                                                                                    .OrderBy(c => c.Position); ;
+                                                                                    .OrderBy(c => c.Position)
+                                                                                    .ThenBy(c => c.Id);
 
             return cardsPostings;
         }
@@ -298,7 +303,7 @@ namespace BudgetAPI.Services
                                                                                      c.Reference == reference &&
                                                                                      c.Card!.UserId == _user.Id &&
                                                                                      (cardId == 0 || c.CardId == cardId))
-                                                                     .OrderBy(c => c.Date).ThenBy(c => c.Position);
+                                                                     .OrderBy(c => c.Date).ThenBy(c => c.Position).ThenBy(c => c.Id);
 
             cardsPostingPeople.Incomes = _context.Incomes.Where(i => i.PeopleId == peopleId &&
                                                                      i.Reference == reference &&
@@ -457,8 +462,6 @@ namespace BudgetAPI.Services
             }
         }
 
-
-
         public async Task PutCardsPostingsWithParcels(CardsPostings cardPosting, bool repeat, int qtyMonths)
         {
             using var transaction =
@@ -513,10 +516,10 @@ namespace BudgetAPI.Services
 
                 List<CardsPostings> cardsPostingsList =
                     repeat
-                        ? RepeatCardsPostings(
+                        ? await RepeatCardsPostingsAsync(
                             cardPosting,
                             qtyMonths)
-                        : GenerateCardsPostings(
+                        : await GenerateCardsPostingsAsync(
                             cardPosting);
 
                 bool createsNewRecords =
@@ -600,8 +603,7 @@ namespace BudgetAPI.Services
                 cardPosting.People = null;
             }
 
-            cardPosting.Position = (short)((_context.CardsPostings.Where(c => c.Reference == cardPosting.Reference && c.CardId == cardPosting.CardId && c.Card!.UserId == _user.Id)
-                                                                  .Max(c => c.Position) ?? 0) + 1);
+            cardPosting.Position = await GetNextPositionAsync(cardPosting.Reference!, cardPosting.CardId);
 
             _context.CardsPostings.Add(cardPosting);
 
@@ -636,8 +638,8 @@ namespace BudgetAPI.Services
                 cardPosting.CardId);
 
             List<CardsPostings>? cardsPostingsList = repeat ?
-                                                     RepeatCardsPostings(cardPosting, qtyMonths) :
-                                                     GenerateCardsPostings(cardPosting);
+                                                     await RepeatCardsPostingsAsync(cardPosting, qtyMonths) :
+                                                     await GenerateCardsPostingsAsync(cardPosting);
 
             CardsPostings? firstCardsPostings = null;
 
@@ -738,8 +740,8 @@ namespace BudgetAPI.Services
                     ApplyNotificationToProvisioned(provisioned, cardPosting);
 
                     List<CardsPostings> generatedPostings = repeat
-                        ? RepeatCardsPostings(cardPosting, qtyMonths)
-                        : GenerateCardsPostings(cardPosting);
+                        ? await RepeatCardsPostingsAsync(cardPosting, qtyMonths)
+                        : await GenerateCardsPostingsAsync(cardPosting);
 
                     CardsPostings? currentGeneratedPosting = generatedPostings.FirstOrDefault();
 
@@ -878,14 +880,89 @@ namespace BudgetAPI.Services
             return newReference;
         }
 
-        private short GetNewPosition(string reference, int cardId)
+        /// <summary>
+        /// Reserva de forma segura a próxima posição para um lançamento de cartão em uma referência.
+        /// Utiliza sp_getapplock para evitar que requisições concorrentes calculem o mesmo MAX(Position).
+        /// Deve ser chamado dentro de uma transação já aberta, que permanecerá segurando o lock até o Commit/Rollback.
+        /// </summary>
+        private async Task<short> GetNextPositionAsync(string reference, int cardId)
         {
-            var newPosition = _context.CardsPostings.Where(e => e.Reference == reference && e.CardId == cardId && e.Card!.UserId == _user.Id).Max(e => e.Position) ?? 0;
+            if (_context.Database.CurrentTransaction == null)
+            {
+                throw new InvalidOperationException(
+                    "GetNextPositionAsync deve ser executado dentro de uma transação ativa.");
+            }
 
-            return ++newPosition;
+            string lockResource = $"CardsPostings.Position:{_user.Id}:{cardId}:{reference}";
+
+            System.Data.Common.DbConnection connection = _context.Database.GetDbConnection();
+
+            if (connection.State != System.Data.ConnectionState.Open)
+            {
+                await connection.OpenAsync();
+            }
+
+            using (System.Data.Common.DbCommand lockCommand = connection.CreateCommand())
+            {
+                lockCommand.Transaction = _context.Database.CurrentTransaction.GetDbTransaction();
+                lockCommand.CommandText = "sp_getapplock";
+                lockCommand.CommandType = System.Data.CommandType.StoredProcedure;
+
+                System.Data.Common.DbParameter resourceParam = lockCommand.CreateParameter();
+                resourceParam.ParameterName = "@Resource";
+                resourceParam.Value = lockResource;
+                lockCommand.Parameters.Add(resourceParam);
+
+                System.Data.Common.DbParameter lockModeParam = lockCommand.CreateParameter();
+                lockModeParam.ParameterName = "@LockMode";
+                lockModeParam.Value = "Exclusive";
+                lockCommand.Parameters.Add(lockModeParam);
+
+                System.Data.Common.DbParameter lockOwnerParam = lockCommand.CreateParameter();
+                lockOwnerParam.ParameterName = "@LockOwner";
+                lockOwnerParam.Value = "Transaction";
+                lockCommand.Parameters.Add(lockOwnerParam);
+
+                System.Data.Common.DbParameter lockTimeoutParam = lockCommand.CreateParameter();
+                lockTimeoutParam.ParameterName = "@LockTimeout";
+                lockTimeoutParam.Value = 10000;
+                lockCommand.Parameters.Add(lockTimeoutParam);
+
+                System.Data.Common.DbParameter returnParam = lockCommand.CreateParameter();
+                returnParam.ParameterName = "@ReturnValue";
+                returnParam.Direction = System.Data.ParameterDirection.ReturnValue;
+                returnParam.DbType = System.Data.DbType.Int32;
+                lockCommand.Parameters.Add(returnParam);
+
+                await lockCommand.ExecuteNonQueryAsync();
+
+                int lockResult = returnParam.Value is int value ? value : -100;
+
+                if (lockResult < 0)
+                {
+                    throw new InvalidOperationException(
+                        "Não foi possível reservar a posição do lançamento para o cartão " +
+                        $"{cardId}, referência {reference}. O bloqueio (sp_getapplock) falhou ou expirou " +
+                        $"o tempo limite. Código retornado: {lockResult}.");
+                }
+            }
+
+            short currentMaxPosition = await _context.CardsPostings
+                .Where(c => c.Reference == reference && c.CardId == cardId && c.Card!.UserId == _user.Id)
+                .Select(c => (short?)c.Position)
+                .MaxAsync() ?? 0;
+
+            if (currentMaxPosition == short.MaxValue)
+            {
+                throw new InvalidOperationException(
+                    $"Não é possível gerar uma nova posição para o cartão {cardId}, referência {reference}. " +
+                    $"O limite máximo de {short.MaxValue} posições foi atingido.");
+            }
+
+            return (short)(currentMaxPosition + 1);
         }
 
-        private List<CardsPostings> GenerateCardsPostings(CardsPostings cardPosting)
+        private async Task<List<CardsPostings>> GenerateCardsPostingsAsync(CardsPostings cardPosting)
         {
             List<CardsPostings> cardsPostingsList = new();
 
@@ -904,13 +981,15 @@ namespace BudgetAPI.Services
             {
                 DateTime? dueDate = ReferenceDateHelper.GetProportionalDate(cardPosting.DueDate, cardPosting.Reference!, reference);
 
+                bool keepExistingPosition = cardPosting.Id > 0 && i == parcelNumber;
+
                 CardsPostings item = new()
                 {
                     CardId       = cardPosting.CardId,
                     Date         = cardPosting.Date,
                     Reference    = reference,
                     PeopleId     = cardPosting.PeopleId,
-                    Position     = cardPosting.Id > 0 && i == parcelNumber ? cardPosting.Position : GetNewPosition(reference, cardPosting.CardId),
+                    Position     = keepExistingPosition ? cardPosting.Position : await GetNextPositionAsync(reference, cardPosting.CardId),
                     Description  = cardPosting.Description,
                     ParcelNumber = i,
                     Parcels      = totalParcels,
@@ -975,7 +1054,7 @@ namespace BudgetAPI.Services
             return cardPostingDTO;
         }
 
-        private List<CardsPostings> RepeatCardsPostings(CardsPostings cardPosting, int qtyMonths)
+        private async Task<List<CardsPostings>> RepeatCardsPostingsAsync(CardsPostings cardPosting, int qtyMonths)
         {
             List<CardsPostings> cardPostingsList = new();
 
@@ -986,6 +1065,8 @@ namespace BudgetAPI.Services
                 DateTime date     = ReferenceDateHelper.GetProportionalDate(cardPosting.Date, cardPosting.Reference!, reference);
                 DateTime? dueDate = ReferenceDateHelper.GetProportionalDate(cardPosting.DueDate, cardPosting.Reference!, reference);
 
+                bool keepExistingPosition = cardPosting.Id > 0 && i == 0;
+
                 CardsPostings item = new()
                 {
                     CardId       = cardPosting.CardId,
@@ -993,7 +1074,7 @@ namespace BudgetAPI.Services
                     DueDate      = dueDate,
                     Reference    = reference,
                     PeopleId     = cardPosting.PeopleId,
-                    Position     = cardPosting.Id > 0 && i == 0 ? cardPosting.Position : GetNewPosition(reference, cardPosting.CardId),
+                    Position     = keepExistingPosition ? cardPosting.Position : await GetNextPositionAsync(reference, cardPosting.CardId),
                     Description  = cardPosting.Description,
                     ParcelNumber = 1,
                     Parcels      = cardPosting.Parcels,
@@ -1080,25 +1161,12 @@ namespace BudgetAPI.Services
             return sourcePosting.Amount;
         }
 
-        private async Task<(
-            int? CurrentRelatedId,
-            List<CardsPostings> FuturePostings
-        )> GetFutureCardPostingsForRepeatAsync(
-            CardsPostings savedCardPosting,
-            string originalDescription)
+        private async Task<(int? CurrentRelatedId, List<CardsPostings> FuturePostings)> GetFutureCardPostingsForRepeatAsync(CardsPostings savedCardPosting, string originalDescription)
         {
-            int currentParcel =
-                savedCardPosting.ParcelNumber.GetValueOrDefault();
-
-            int totalParcels =
-                savedCardPosting.Parcels.GetValueOrDefault();
-
-            bool isInstallment =
-                totalParcels > 1;
-
-            int relatedId =
-                savedCardPosting.RelatedId ??
-                savedCardPosting.Id;
+            int currentParcel  = savedCardPosting.ParcelNumber.GetValueOrDefault();
+            int totalParcels   = savedCardPosting.Parcels.GetValueOrDefault();
+            bool isInstallment = totalParcels > 1;
+            int relatedId      = savedCardPosting.RelatedId ?? savedCardPosting.Id;
 
             bool hasLinkedSequence =
                 await _context.CardsPostings.AnyAsync(cp =>
@@ -1129,9 +1197,7 @@ namespace BudgetAPI.Services
                         .ThenBy(cp => cp.ParcelNumber)
                         .ToListAsync();
 
-                return (
-                    savedCardPosting.RelatedId,
-                    linkedFuturePostings);
+                return (savedCardPosting.RelatedId, linkedFuturePostings);
             }
 
             if (!isInstallment)
@@ -1303,9 +1369,7 @@ namespace BudgetAPI.Services
                     .OrderBy(cp => cp.ParcelNumber)
                     .ToList();
 
-            return (
-                currentRelatedId,
-                legacyFuturePostings);
+            return (currentRelatedId, legacyFuturePostings);
         }
     }
 }
