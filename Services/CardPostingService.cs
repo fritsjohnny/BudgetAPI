@@ -345,6 +345,13 @@ namespace BudgetAPI.Services
                         "Lançamento de cartão não encontrado para o usuário atual.");
                 }
 
+                await FinancialResourceValidator.ValidateCardPostingReferencesAsync(
+                    _context,
+                    _user.Id,
+                    cardPosting.CategoryId,
+                    cardPosting.PeopleId,
+                    cardPosting.ExpenseId);
+
                 await FinancialResourceValidator.ValidateCardForUpdateAsync(
                     _context,
                     _user.Id,
@@ -520,6 +527,13 @@ namespace BudgetAPI.Services
                         "Lançamento de cartão não encontrado para o usuário atual.");
                 }
 
+                await FinancialResourceValidator.ValidateCardPostingReferencesAsync(
+                    _context,
+                    _user.Id,
+                    cardPosting.CategoryId,
+                    cardPosting.PeopleId,
+                    cardPosting.ExpenseId);
+
                 int? previousExpenseId =
                     savedCardPosting.ExpenseId;
 
@@ -631,14 +645,26 @@ namespace BudgetAPI.Services
 
         public async Task PostCardsPostings(CardsPostings cardPosting, bool allowClosedInvoiceOperation = false)
         {
-            await _invoiceClosingService.ValidateOperationAsync(
-                new[] { (cardPosting.CardId, cardPosting.Reference!) },
-                allowClosedInvoiceOperation);
+            await FinancialResourceValidator.ValidateCardPostingReferencesAsync(
+                _context,
+                _user.Id,
+                cardPosting.CategoryId,
+                cardPosting.PeopleId,
+                cardPosting.ExpenseId);
 
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
             {
+                await FinancialResourceValidator.ValidateCardForCreateAsync(
+                    _context,
+                    _user.Id,
+                    cardPosting.CardId);
+
+                await _invoiceClosingService.ValidateOperationAsync(
+                    new[] { (cardPosting.CardId, cardPosting.Reference!) },
+                    allowClosedInvoiceOperation);
+
                 await PostCardsPostingsCoreAsync(cardPosting);
 
                 await ReorderPositionGroupsByDateAsync(new[] { (cardPosting.CardId, cardPosting.Reference!) });
@@ -681,14 +707,29 @@ namespace BudgetAPI.Services
 
         public async Task PostCardsPostingsWithParcels(CardsPostings cardPosting, bool repeat, int qtyMonths, bool allowClosedInvoiceOperation = false)
         {
-            await _invoiceClosingService.ValidateOperationAsync(
-                GetGeneratedPositionGroups(cardPosting, repeat, qtyMonths),
-                allowClosedInvoiceOperation);
+            await FinancialResourceValidator.ValidateCardPostingReferencesAsync(
+                _context,
+                _user.Id,
+                cardPosting.CategoryId,
+                cardPosting.PeopleId,
+                cardPosting.ExpenseId);
+
+            List<(int CardId, string Reference)> generatedGroups =
+                GetGeneratedPositionGroups(cardPosting, repeat, qtyMonths);
 
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
             {
+                await FinancialResourceValidator.ValidateCardForCreateAsync(
+                    _context,
+                    _user.Id,
+                    cardPosting.CardId);
+
+                await _invoiceClosingService.ValidateOperationAsync(
+                    generatedGroups,
+                    allowClosedInvoiceOperation);
+
                 List<CardsPostings> generatedPostings =
                     await PostCardsPostingsWithParcelsCoreAsync(cardPosting, repeat, qtyMonths);
 
@@ -757,9 +798,12 @@ namespace BudgetAPI.Services
 
         public async Task PostCardsPostingsFromNotification(CardsPostings cardPosting, bool allowClosedInvoiceOperation = false)
         {
-            await _invoiceClosingService.ValidateOperationAsync(
-                new[] { (cardPosting.CardId, cardPosting.Reference!) },
-                allowClosedInvoiceOperation);
+            await FinancialResourceValidator.ValidateCardPostingReferencesAsync(
+                _context,
+                _user.Id,
+                cardPosting.CategoryId,
+                cardPosting.PeopleId,
+                cardPosting.ExpenseId);
 
             using var transaction = await _context.Database.BeginTransactionAsync();
 
@@ -774,15 +818,37 @@ namespace BudgetAPI.Services
 
                 CardsPostings? provisioned = await FindProvisionedPostingAsync(cardPosting);
 
+                List<(int CardId, string Reference)> affectedGroups = new()
+                {
+                    (cardPosting.CardId, cardPosting.Reference!)
+                };
+
                 if (provisioned == null)
                 {
+                    await _invoiceClosingService.ValidateOperationAsync(
+                        affectedGroups,
+                        allowClosedInvoiceOperation);
+
                     await PostCardsPostingsCoreAsync(cardPosting);
                 }
                 else
                 {
+                    affectedGroups.Add((provisioned.CardId, provisioned.Reference!));
+
                     int? previousExpenseId = provisioned.ExpenseId;
 
                     ApplyNotificationToProvisioned(provisioned, cardPosting);
+
+                    await FinancialResourceValidator.ValidateCardPostingReferencesAsync(
+                        _context,
+                        _user.Id,
+                        provisioned.CategoryId,
+                        provisioned.PeopleId,
+                        provisioned.ExpenseId);
+
+                    await _invoiceClosingService.ValidateOperationAsync(
+                        affectedGroups,
+                        allowClosedInvoiceOperation);
 
                     _context.Entry(provisioned).State = EntityState.Modified;
 
@@ -790,6 +856,9 @@ namespace BudgetAPI.Services
 
                     await AjustarDespesasVinculadas(previousExpenseId, provisioned.ExpenseId);
                 }
+
+                await ReorderPositionGroupsByDateAsync(affectedGroups);
+                await _context.SaveChangesAsync();
 
                 await transaction.CommitAsync();
             }
@@ -804,6 +873,13 @@ namespace BudgetAPI.Services
 
         public async Task PostCardsPostingsWithParcelsFromNotification(CardsPostings cardPosting, bool repeat, int qtyMonths, bool allowClosedInvoiceOperation = false)
         {
+            await FinancialResourceValidator.ValidateCardPostingReferencesAsync(
+                _context,
+                _user.Id,
+                cardPosting.CategoryId,
+                cardPosting.PeopleId,
+                cardPosting.ExpenseId);
+
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
@@ -829,6 +905,9 @@ namespace BudgetAPI.Services
                 }
                 else
                 {
+                    (int CardId, string Reference) provisionedGroup =
+                        (provisioned.CardId, provisioned.Reference!);
+
                     int? previousExpenseId = provisioned.ExpenseId;
                     int rootId = provisioned.RelatedId ?? provisioned.Id;
 
@@ -837,10 +916,19 @@ namespace BudgetAPI.Services
                                                                           cp.Id != provisioned.Id &&
                                                                            cp.RelatedId == rootId);
 
-                    await AcquirePositionLocksAsync(
-                        GetGeneratedPositionGroups(cardPosting, repeat, qtyMonths));
-
                     ApplyNotificationToProvisioned(provisioned, cardPosting);
+
+                    await FinancialResourceValidator.ValidateCardPostingReferencesAsync(
+                        _context,
+                        _user.Id,
+                        provisioned.CategoryId,
+                        provisioned.PeopleId,
+                        provisioned.ExpenseId);
+
+                    affectedGroups = GetGeneratedPositionGroups(cardPosting, repeat, qtyMonths);
+                    affectedGroups.Add(provisionedGroup);
+
+                    await AcquirePositionLocksAsync(affectedGroups);
 
                     List<CardsPostings> generatedPostings = repeat
                         ? await RepeatCardsPostingsAsync(cardPosting, qtyMonths)
@@ -899,6 +987,9 @@ namespace BudgetAPI.Services
                     cardPosting.RelatedId    = provisioned.RelatedId;
                     cardPosting.Provisioned  = false;
                 }
+
+                await ReorderPositionGroupsByDateAsync(affectedGroups);
+                await _context.SaveChangesAsync();
 
                 await transaction.CommitAsync();
             }

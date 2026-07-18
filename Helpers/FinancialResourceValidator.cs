@@ -161,5 +161,43 @@ namespace BudgetAPI.Helpers
                 originalAccountId,
                 newAccountId);
         }
+
+        public static async Task ValidateCardPostingReferencesAsync(
+            BudgetContext context,
+            int userId,
+            int? categoryId,
+            int? peopleId,
+            int? expenseId)
+        {
+            if (categoryId.HasValue && !await context.Categories
+                .AsNoTracking()
+                .AnyAsync(category =>
+                    category.Id == categoryId.Value &&
+                    category.UserId == userId))
+            {
+                throw new ArgumentException(
+                    "A categoria informada é inválida para o usuário atual.");
+            }
+
+            if (peopleId.HasValue && !await context.People
+                .AsNoTracking()
+                .AnyAsync(person =>
+                    person.Id == peopleId.Value &&
+                    person.UserId == userId))
+            {
+                throw new ArgumentException(
+                    "A pessoa informada é inválida para o usuário atual.");
+            }
+
+            if (expenseId.HasValue && !await context.Expenses
+                .AsNoTracking()
+                .AnyAsync(expense =>
+                    expense.Id == expenseId.Value &&
+                    expense.UserId == userId))
+            {
+                throw new ArgumentException(
+                    "A despesa informada é inválida para o usuário atual.");
+            }
+        }
     }
 }
