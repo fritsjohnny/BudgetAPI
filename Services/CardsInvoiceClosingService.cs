@@ -75,8 +75,11 @@ namespace BudgetAPI.Services
             try
             {
                 await _context.SaveChangesAsync();
-                closing.Card = card;
-                return ToDTO(closing);
+
+                CardsInvoiceClosingDTO result = ToDTO(closing);
+                result.CardName = card.Name;
+
+                return result;
             }
             catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception))
             {
