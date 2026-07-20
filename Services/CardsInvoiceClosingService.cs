@@ -9,6 +9,8 @@ namespace BudgetAPI.Services
     public interface ICardsInvoiceClosingService
     {
         Task<CardsInvoiceClosingDTO> EnsureAsync(int cardId, string reference);
+        Task ValidatePreviousInvoiceClosedAsync(int cardId, string reference);
+        Task<CardsInvoiceClosingDTO> PreparePostingAsync(int cardId, string reference);
         Task<CardsInvoiceClosingDTO> UpdateAsync(int id, DateTime closingDate);
         Task<CardsInvoiceClosing?> GetEntityAsync(int cardId, string reference);
         Task ValidateOperationAsync(
@@ -19,6 +21,11 @@ namespace BudgetAPI.Services
     public sealed class ClosedInvoiceOperationException : InvalidOperationException
     {
         public ClosedInvoiceOperationException(string message) : base(message) { }
+    }
+
+    public sealed class OpenPreviousInvoiceOperationException : InvalidOperationException
+    {
+        public OpenPreviousInvoiceOperationException(string message) : base(message) { }
     }
 
     public sealed class CardsInvoiceClosingConflictException : Exception
@@ -92,6 +99,31 @@ namespace BudgetAPI.Services
                     "Não foi possível confirmar o fechamento criado simultaneamente. Tente novamente.",
                     exception);
             }
+        }
+
+        public async Task ValidatePreviousInvoiceClosedAsync(int cardId, string reference)
+        {
+            ValidateCardId(cardId);
+            DateTime referenceMonth = ReferenceHelper.GetReferenceMonth(reference);
+            string previousReference = referenceMonth.AddMonths(-1).ToString("yyyyMM");
+            CardsInvoiceClosingDTO previousClosing = await EnsureAsync(cardId, previousReference);
+
+            if (previousClosing.IsClosed)
+                return;
+
+            string closingDateDescription = previousClosing.IsEstimated
+                ? $"O fechamento da fatura anterior está previsto para {previousClosing.ClosingDate:dd/MM/yyyy}."
+                : $"A data de fechamento da fatura anterior foi definida para {previousClosing.ClosingDate:dd/MM/yyyy}.";
+
+            throw new OpenPreviousInvoiceOperationException(
+                $"Não é permitido lançar na fatura {ReferenceHelper.FormatReference(reference)} do cartão {previousClosing.CardName ?? cardId.ToString()} " +
+                $"enquanto a fatura anterior {ReferenceHelper.FormatReference(previousReference)} estiver aberta. {closingDateDescription}");
+        }
+
+        public async Task<CardsInvoiceClosingDTO> PreparePostingAsync(int cardId, string reference)
+        {
+            await ValidatePreviousInvoiceClosedAsync(cardId, reference);
+            return await EnsureAsync(cardId, reference);
         }
 
         public async Task<CardsInvoiceClosing?> GetEntityAsync(int cardId, string reference)

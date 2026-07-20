@@ -42,6 +42,35 @@ namespace BudgetAPI.Controllers
             }
         }
 
+        [HttpPost("PreparePosting/{cardId}/{reference}")]
+        public async Task<ActionResult<CardsInvoiceClosingDTO>> PreparePosting(int cardId, string reference)
+        {
+            try
+            {
+                return Ok(await _service.PreparePostingAsync(cardId, reference));
+            }
+            catch (ArgumentException exception)
+            {
+                return BadRequest(new { message = exception.Message });
+            }
+            catch (KeyNotFoundException exception)
+            {
+                return NotFound(new { message = exception.Message });
+            }
+            catch (OpenPreviousInvoiceOperationException exception)
+            {
+                return Conflict(new { message = exception.Message });
+            }
+            catch (CardsInvoiceClosingConflictException exception)
+            {
+                return Conflict(new { message = exception.Message });
+            }
+            catch (Exception exception)
+            {
+                return Problem(exception.Message, statusCode: StatusCodes.Status500InternalServerError);
+            }
+        }
+
         [HttpPut("{id}")]
         public async Task<ActionResult<CardsInvoiceClosingDTO>> Update(int id, UpdateCardsInvoiceClosingDTO request)
         {

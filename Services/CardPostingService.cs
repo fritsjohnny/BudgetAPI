@@ -661,6 +661,8 @@ namespace BudgetAPI.Services
                     _user.Id,
                     cardPosting.CardId);
 
+                await _invoiceClosingService.ValidatePreviousInvoiceClosedAsync(cardPosting.CardId, cardPosting.Reference!);
+
                 await _invoiceClosingService.ValidateOperationAsync(
                     new[] { (cardPosting.CardId, cardPosting.Reference!) },
                     allowClosedInvoiceOperation);
@@ -676,7 +678,7 @@ namespace BudgetAPI.Services
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                if (ex is ClosedInvoiceOperationException)
+                if (ex is ClosedInvoiceOperationException or OpenPreviousInvoiceOperationException)
                     throw;
                 throw new Exception($"Erro no CardPostingService.PostCardsPostings: {ex.Message}", ex);
             }
@@ -726,6 +728,8 @@ namespace BudgetAPI.Services
                     _user.Id,
                     cardPosting.CardId);
 
+                await _invoiceClosingService.ValidatePreviousInvoiceClosedAsync(cardPosting.CardId, cardPosting.Reference!);
+
                 await _invoiceClosingService.ValidateOperationAsync(
                     generatedGroups,
                     allowClosedInvoiceOperation);
@@ -743,7 +747,7 @@ namespace BudgetAPI.Services
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                if (ex is ClosedInvoiceOperationException)
+                if (ex is ClosedInvoiceOperationException or OpenPreviousInvoiceOperationException)
                     throw;
                 throw new Exception($"Erro no CardPostingService.PostCardsPostingsWithParcels: {ex.Message}", ex);
             }
@@ -814,6 +818,8 @@ namespace BudgetAPI.Services
                     _user.Id,
                     cardPosting.CardId);
 
+                await _invoiceClosingService.ValidatePreviousInvoiceClosedAsync(cardPosting.CardId, cardPosting.Reference!);
+
                 cardPosting.Provisioned = false;
 
                 CardsPostings? provisioned = await FindProvisionedPostingAsync(cardPosting);
@@ -865,7 +871,7 @@ namespace BudgetAPI.Services
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                if (ex is ClosedInvoiceOperationException)
+                if (ex is ClosedInvoiceOperationException or OpenPreviousInvoiceOperationException)
                     throw;
                 throw new Exception($"Erro no CardPostingService.PostCardsPostingsFromNotification: {ex.Message}", ex);
             }
@@ -885,6 +891,8 @@ namespace BudgetAPI.Services
             try
             {
                 await FinancialResourceValidator.ValidateCardForCreateAsync(_context, _user.Id, cardPosting.CardId);
+
+                await _invoiceClosingService.ValidatePreviousInvoiceClosedAsync(cardPosting.CardId, cardPosting.Reference!);
 
                 cardPosting.Provisioned = false;
 
@@ -996,7 +1004,7 @@ namespace BudgetAPI.Services
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                if (ex is ClosedInvoiceOperationException)
+                if (ex is ClosedInvoiceOperationException or OpenPreviousInvoiceOperationException)
                     throw;
                 throw new Exception($"Erro no CardPostingService.PostCardsPostingsWithParcelsFromNotification: {ex.Message}", ex);
             }

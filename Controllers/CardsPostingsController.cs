@@ -208,6 +208,10 @@ namespace BudgetAPI.Controllers
             {
                 return Conflict(new { message = ex.Message });
             }
+            catch (OpenPreviousInvoiceOperationException ex)
+            {
+                return Conflict(new { message = ex.Message });
+            }
             catch (Exception ex)
             {
                 if (ex.InnerException?.Message?.Contains("ExpenseService") == true ||
@@ -235,6 +239,10 @@ namespace BudgetAPI.Controllers
                 return await GetCardsPostings(cardsPostings.Id);
             }
             catch (ClosedInvoiceOperationException ex)
+            {
+                return Conflict(new { message = ex.Message });
+            }
+            catch (OpenPreviousInvoiceOperationException ex)
             {
                 return Conflict(new { message = ex.Message });
             }
@@ -268,6 +276,10 @@ namespace BudgetAPI.Controllers
             {
                 return Conflict(new { message = ex.Message });
             }
+            catch (OpenPreviousInvoiceOperationException ex)
+            {
+                return Conflict(new { message = ex.Message });
+            }
             catch (Exception ex)
             {
                 if (ex.InnerException?.Message?.Contains("ExpenseService") == true ||
@@ -295,6 +307,10 @@ namespace BudgetAPI.Controllers
                 return await GetCardsPostings(cardsPostings.Id);
             }
             catch (ClosedInvoiceOperationException ex)
+            {
+                return Conflict(new { message = ex.Message });
+            }
+            catch (OpenPreviousInvoiceOperationException ex)
             {
                 return Conflict(new { message = ex.Message });
             }
