@@ -69,6 +69,20 @@ namespace BudgetAPI.Services
                    (posting.RelatedId.HasValue && (posting.Type == "P" || posting.Type == "R"));
         }
 
+        private static void NormalizeYieldFields(AccountsPostings posting)
+        {
+            if (string.Equals(posting.Type, "Y", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            posting.GrossAmount = null;
+            posting.TotalGrossBalance = null;
+            posting.TotalIOF = null;
+            posting.TotalIR = null;
+            posting.IOFElapsedDays = null;
+        }
+
         // Método auxiliar para gerar descrições padronizadas
         private (string originDesc, string destinationDesc) GetTransferDescriptions(Accounts fromAccount, Accounts toAccount)
         {
@@ -79,6 +93,8 @@ namespace BudgetAPI.Services
 
         public async Task<int> PutAccountsPostings(AccountsPostings accountsPostings)
         {
+            NormalizeYieldFields(accountsPostings);
+
             if (IsTransfer(accountsPostings))
             {
                 return await UpdateTransferBetweenAccounts(accountsPostings);
@@ -255,6 +271,9 @@ namespace BudgetAPI.Services
                 destination.Note        = request.Note;
                 destination.Type        = "R";
 
+                NormalizeYieldFields(origin);
+                NormalizeYieldFields(destination);
+
                 _context.Entry(origin).State      = EntityState.Modified;
                 _context.Entry(destination).State = EntityState.Modified;
 
@@ -272,6 +291,8 @@ namespace BudgetAPI.Services
 
         public async Task<int> PostAccountsPostings(AccountsPostings accountsPostings)
         {
+            NormalizeYieldFields(accountsPostings);
+
             if (IsTransfer(accountsPostings))
             {
                 return await TransferBetweenAccounts(accountsPostings);
@@ -473,6 +494,9 @@ namespace BudgetAPI.Services
                 Type        = "R",
                 Position    = (short)(nextPos + 1)
             };
+
+            NormalizeYieldFields(originPosting);
+            NormalizeYieldFields(destinationPosting);
 
             using var tx = await _context.Database.BeginTransactionAsync();
 

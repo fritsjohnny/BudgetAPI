@@ -116,11 +116,8 @@ namespace BudgetAPI.Services
                 throw new InvalidOperationException("Conta não encontrada para o usuário atual.");
             }
 
-            string currentReference = DateTime.Today.ToString("yyyyMM");
-
             decimal currentBalance = await _context.AccountsPostings
-                                                   .Where(ap => ap.AccountId == accountId &&
-                                                                string.Compare(ap.Reference, currentReference) <= 0)
+                                                   .Where(ap => ap.AccountId == accountId)
                                                    .SumAsync(ap => (decimal?)ap.Amount) ?? 0;
 
             List<AccountForecastMovement> incomes = await _context.Incomes

@@ -84,9 +84,7 @@ namespace BudgetAPI.Services
             await ApplyClosingBalancesAsync(monthlyEvolution);
             MarkOutliers(monthlyEvolution);
 
-            string currentReference = ToReference(currentMonth);
-
-            List<FinancialHealthAccountDTO> accounts = await LoadAccountsAsync(currentReference, userToday);
+            List<FinancialHealthAccountDTO> accounts = await LoadAccountsAsync(userToday);
             List<FinancialHealthInstitutionDTO> institutions = BuildInstitutions(accounts);
 
             List<CategoryAmount> currentCategoryAmounts = await LoadCategoryTotalsAsync(references);
@@ -383,7 +381,6 @@ namespace BudgetAPI.Services
         }
 
         private async Task<List<FinancialHealthAccountDTO>> LoadAccountsAsync(
-            string currentReference,
             DateTime userToday)
         {
             List<AccountBalanceRaw> rawAccounts = await _context.Accounts
@@ -397,9 +394,7 @@ namespace BudgetAPI.Services
                     Id = account.Id,
                     Name = account.Name,
                     Balance = _context.AccountsPostings
-                        .Where(posting =>
-                            posting.AccountId == account.Id &&
-                            string.Compare(posting.Reference, currentReference) <= 0)
+                        .Where(posting => posting.AccountId == account.Id)
                         .Sum(posting => (decimal?)posting.Amount) ?? 0,
                     TotalBalanceGross = account.TotalBalanceGross,
                     YieldPercent = account.YieldPercent,

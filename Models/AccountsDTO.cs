@@ -13,6 +13,16 @@
         public string? AppPackageName { get; set; }
         public decimal GrandTotalBalance { get; set; }
         public decimal TotalBalance { get; set; }
+        /// <summary>
+        /// Saldo líquido real da conta, considerando lançamentos de todas as referências.
+        /// Usado exclusivamente como base para o cálculo de rendimentos.
+        /// </summary>
+        public decimal CurrentBalance { get; set; }
+        /// <summary>
+        /// Saldo bruto real da conta, considerando lançamentos de todas as referências.
+        /// Usa o valor líquido como fallback para lançamentos legados sem GrossAmount.
+        /// </summary>
+        public decimal CurrentGrossBalance { get; set; }
         public decimal PreviousBalance { get; set; }
         public decimal TotalYields { get; set; }
         public decimal GrandTotalYields { get; set; }
@@ -22,12 +32,10 @@
         /// </summary>
         public decimal? YieldPercent { get; set; }
 
-
         /// <summary>
         /// Nome do índice de referência para o rendimento (ex: "CDI", "IPCA", "SELIC").
         /// </summary>
         public string? YieldIndex { get; set; }
-
 
         /// <summary>
         /// Alíquota de Imposto de Renda (%) aplicada sobre o rendimento bruto.
@@ -35,14 +43,13 @@
         /// </summary>
         public decimal? IrPercent { get; set; }
 
-
         /// <summary>
         /// Indica se os rendimentos dessa conta são isentos de IR e IOF (ex: LCI, LCA).
         /// Se verdadeiro, ignora o campo IrPercent no cálculo.
         /// </summary>
         public bool IsTaxExempt { get; set; }
         /// <summary>
-        /// Saldo bruto total da conta, incluindo rendimentos antes de impostos.
+        /// Saldo bruto acumulado até a referência consultada.
         /// </summary>
         public decimal? TotalBalanceGross { get; set; }
     }
