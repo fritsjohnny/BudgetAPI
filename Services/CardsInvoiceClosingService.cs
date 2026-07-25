@@ -62,10 +62,12 @@ namespace BudgetAPI.Services
                 return ToDTO(existing);
 
             if (!card.ClosingDay.HasValue)
-                throw new ArgumentException("Configure o dia de fechamento no cadastro do cartão antes de gerar o fechamento da fatura.");
+                throw new ArgumentException("Configure o melhor dia de compra no cadastro do cartão antes de validar a situação da fatura.");
             if (card.ClosingDay < 1 || card.ClosingDay > 31)
-                throw new ArgumentException("O dia de fechamento do cartão deve estar entre 1 e 31.");
+                throw new ArgumentException("O melhor dia de compra do cartão deve estar entre 1 e 31.");
 
+            // ClosingDay é o nome legado do campo; o valor representa o melhor dia de compra,
+            // isto é, o primeiro dia da fatura seguinte.
             int day = Math.Min(card.ClosingDay.Value, DateTime.DaysInMonth(referenceMonth.Year, referenceMonth.Month));
             DateTime utcNow = DateTime.UtcNow;
             var closing = new CardsInvoiceClosing
@@ -112,8 +114,8 @@ namespace BudgetAPI.Services
                 return;
 
             string closingDateDescription = previousClosing.IsEstimated
-                ? $"O fechamento da fatura anterior está previsto para {previousClosing.ClosingDate:dd/MM/yyyy}."
-                : $"A data de fechamento da fatura anterior foi definida para {previousClosing.ClosingDate:dd/MM/yyyy}.";
+                ? $"A próxima fatura está prevista para iniciar em {previousClosing.ClosingDate:dd/MM/yyyy}."
+                : $"O início da próxima fatura foi definido para {previousClosing.ClosingDate:dd/MM/yyyy}.";
 
             throw new OpenPreviousInvoiceOperationException(
                 $"Não é permitido lançar na fatura {ReferenceHelper.FormatReference(reference)} do cartão {previousClosing.CardName ?? cardId.ToString()} " +
@@ -153,7 +155,7 @@ namespace BudgetAPI.Services
             DateTime referenceMonth = ReferenceHelper.GetReferenceMonth(closing.Reference);
             DateTime normalizedDate = closingDate.Date;
             if (normalizedDate.Year != referenceMonth.Year || normalizedDate.Month != referenceMonth.Month)
-                throw new ArgumentException($"A data de fechamento deve pertencer à referência {ReferenceHelper.FormatReference(closing.Reference)}.");
+                throw new ArgumentException($"A data de início da próxima fatura deve pertencer à referência {ReferenceHelper.FormatReference(closing.Reference)}.");
 
             closing.ClosingDate = normalizedDate;
             closing.IsEstimated = false;
@@ -190,7 +192,7 @@ namespace BudgetAPI.Services
             CardsInvoiceClosingDTO first = closedInvoices[0];
             string message =
                 $"A fatura {ReferenceHelper.FormatReference(first.Reference)} do cartão {first.CardName ?? first.CardId.ToString()} " +
-                $"foi fechada em {first.ClosingDate:dd/MM/yyyy}. " +
+                $"está fechada desde {first.ClosingDate:dd/MM/yyyy}, quando iniciou a fatura seguinte. " +
                 "Marque a opção para permitir uma operação em fatura fechada.";
 
             if (closedInvoices.Count > 1)
@@ -231,7 +233,7 @@ namespace BudgetAPI.Services
             Reference = entity.Reference,
             ClosingDate = entity.ClosingDate,
             IsEstimated = entity.IsEstimated,
-            IsClosed = BrazilDateTimeHelper.GetCurrentDate() > entity.ClosingDate.Date
+            IsClosed = BrazilDateTimeHelper.GetCurrentDate() >= entity.ClosingDate.Date
         };
     }
 }
