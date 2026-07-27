@@ -605,6 +605,11 @@ namespace BudgetAPI.Services
                         currentGeneratedPosting.Amount;
                 }
 
+                if (repeat)
+                {
+                    cardPosting.RelatedId = null;
+                }
+
                 int relatedId =
                     cardPosting.RelatedId ??
                     cardPosting.Id;
@@ -613,7 +618,10 @@ namespace BudgetAPI.Services
                     CardsPostings item
                     in cardsPostingsList.Skip(1))
                 {
-                    item.RelatedId = relatedId;
+                    if (!repeat)
+                    {
+                        item.RelatedId = relatedId;
+                    }
 
                     _context.CardsPostings.Add(item);
                 }
@@ -787,7 +795,7 @@ namespace BudgetAPI.Services
                     cardPosting.Id     = cp.Id;
                     cardPosting.Amount = cp.Amount;
                 }
-                else
+                else if (!repeat)
                 {
                     cp.RelatedId = firstCardsPostings.Id;
                     await _context.SaveChangesAsync();
@@ -957,13 +965,18 @@ namespace BudgetAPI.Services
                     provisioned.DueDate      = currentGeneratedPosting.DueDate ?? provisioned.DueDate;
                     provisioned.Provisioned  = false;
 
+                    if (repeat)
+                    {
+                        provisioned.RelatedId = null;
+                    }
+
                     _context.Entry(provisioned).State = EntityState.Modified;
 
                     if (!hasSequence)
                     {
                         foreach (CardsPostings generatedPosting in generatedPostings.Skip(1))
                         {
-                            generatedPosting.RelatedId = rootId;
+                            generatedPosting.RelatedId = repeat ? null : rootId;
                             generatedPosting.ExpenseId = null;
                             generatedPosting.Provisioned = false;
 
@@ -1138,12 +1151,23 @@ namespace BudgetAPI.Services
             if (mainPosting is null)
                 throw new KeyNotFoundException("Lançamento de cartão não encontrado para o usuário atual.");
 
-            List<CardsPostings> relatedPostings = await _context.CardsPostings
-                .Include(posting => posting.Card)
-                .Where(posting =>
-                    posting.RelatedId == mainPosting.Id &&
-                    posting.Card!.UserId == _user.Id)
-                .ToListAsync();
+            int mainParcelNumber = mainPosting.ParcelNumber.GetValueOrDefault(1);
+            int totalParcels     = mainPosting.Parcels.GetValueOrDefault(1);
+
+            List<CardsPostings> relatedPostings = new();
+
+            if (totalParcels > 1)
+            {
+                relatedPostings = await _context.CardsPostings
+                    .Include(posting => posting.Card)
+                    .Where(posting =>
+                        posting.RelatedId == mainPosting.Id &&
+                        posting.Parcels == totalParcels &&
+                        posting.ParcelNumber.HasValue &&
+                        posting.ParcelNumber.Value > mainParcelNumber &&
+                        posting.Card!.UserId == _user.Id)
+                    .ToListAsync();
+            }
 
             relatedPostings.Insert(0, mainPosting);
             return relatedPostings;
