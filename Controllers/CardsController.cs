@@ -100,9 +100,11 @@ namespace BudgetAPI.Controllers
         }
 
         [HttpGet("Available")]
-        public async Task<ActionResult<IEnumerable<CardsDTO>>> GetAvailableCards(string reference)
+        public async Task<ActionResult<IEnumerable<CardsDTO>>> GetAvailableCards(string reference, DateTime? currentDate)
         {
-            return await _cardService.GetAvailableCards(reference).ToListAsync();
+            DateTime effectiveCurrentDate = (currentDate ?? DateTime.Today).Date;
+
+            return await _cardService.GetAvailableCards(reference, effectiveCurrentDate).ToListAsync();
         }
     }
 }

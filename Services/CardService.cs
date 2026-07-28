@@ -13,7 +13,7 @@ namespace BudgetAPI.Services
         Task<int> DeleteCard(Cards card);
         bool CardExists(int id);
         bool ValidarUsuario(int id);
-        IQueryable<CardsDTO> GetAvailableCards(string reference);
+        IQueryable<CardsDTO> GetAvailableCards(string reference, DateTime currentDate);
     }
     public class CardService : ICardService
     {
@@ -87,8 +87,10 @@ namespace BudgetAPI.Services
             AppPackageName = card.AppPackageName,
         };
 
-        public IQueryable<CardsDTO> GetAvailableCards(string reference)
+        public IQueryable<CardsDTO> GetAvailableCards(string reference, DateTime currentDate)
         {
+            DateTime tomorrow = currentDate.Date.AddDays(1);
+
             IQueryable<CardsDTO> cards = _context.Cards
                 .Where(c =>
                     c.UserId == _user.Id &&
@@ -101,7 +103,10 @@ namespace BudgetAPI.Services
                             cr.CardId == c.Id &&
                             cr.Reference == reference)
                     ))
-                .OrderBy(c => c.Name)
+                .OrderByDescending(c => _context.CardsPostings
+                    .Where(cp => cp.CardId == c.Id && cp.Date < tomorrow)
+                    .Max(cp => (DateTime?)cp.Date))
+                .ThenBy(c => c.Name)
                 .Select(c => CardToDTO(c));
 
             return cards;
