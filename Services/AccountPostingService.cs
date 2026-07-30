@@ -434,6 +434,7 @@ namespace BudgetAPI.Services
             if (string.IsNullOrWhiteSpace(accountPosting.Reference)) throw new ArgumentException("Referência é obrigatória.");
 
             decimal amount = Math.Abs(accountPosting.Amount);
+            decimal grossAmountToDeduct = Math.Abs(accountPosting.GrossAmount ?? amount);
 
             if (amount <= 0) throw new ArgumentException("Valor da transferência deve ser maior que zero.");
 
@@ -502,6 +503,9 @@ namespace BudgetAPI.Services
 
             try
             {
+                decimal currentGrossBalance = fromAccount.TotalBalanceGross ?? 0;
+                fromAccount.TotalBalanceGross = Math.Round(Math.Max(0, currentGrossBalance - grossAmountToDeduct), 2);
+
                 _context.AccountsPostings.Add(originPosting);
                 _context.AccountsPostings.Add(destinationPosting);
 

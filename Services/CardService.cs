@@ -107,7 +107,26 @@ namespace BudgetAPI.Services
                     .Where(cp => cp.CardId == c.Id && cp.Date < tomorrow)
                     .Max(cp => (DateTime?)cp.Date))
                 .ThenBy(c => c.Name)
-                .Select(c => CardToDTO(c));
+                .Select(c => new CardsDTO
+                {
+                    Id             = c.Id,
+                    UserId         = c.UserId,
+                    Name           = c.Name,
+                    Color          = c.Color,
+                    Background     = c.Background,
+                    Disabled       = c.Disabled,
+                    DueDay         = c.DueDay,
+                    ClosingDay     = c.ClosingDay,
+                    AppPackageName = c.AppPackageName,
+                    ExpenseDueDate = _context.Expenses
+                        .Where(e =>
+                            e.UserId == _user.Id &&
+                            e.Reference == reference &&
+                            e.CardId == c.Id)
+                        .OrderBy(e => e.Position)
+                        .Select(e => e.DueDate)
+                        .FirstOrDefault()
+                });
 
             return cards;
         }
