@@ -14,6 +14,7 @@ namespace BudgetAPI.Services
         Task<int> PostAccountsPostings(AccountsPostings accountsPostings);
         Task<int> DeleteAccountsPostings(AccountsPostings accountsPostings);
         Task<int> SetPositions(List<AccountsPostings> accountsPostings);
+        Task ReorderPositionsByDate(int accountId, string reference);
         bool ValidarUsuario(int accountPostingId);
         bool AccountsPostingsExists(int id);
         bool ValidateAccountAndUser(int accountId);
@@ -22,6 +23,7 @@ namespace BudgetAPI.Services
         Task<int> GenerateCardReceiptFromAccountPosting(int accountPostingId, int cardId, int peopleId);
         Task<decimal> GetPreviousYield(int accountId, string reference);
         Task<decimal> GetTotalPreviousYields(int accountId, string reference);
+        Task<AccountHistoricalBalanceDTO> GetHistoricalBalance(int accountId, DateTime date, int? excludePostingId);
     }
 
     public class AccountPostingService : IAccountPostingService
@@ -309,19 +311,34 @@ namespace BudgetAPI.Services
 
             accountsPostings.Position = (short)((_context.AccountsPostings.Where(o => o.Reference == accountsPostings.Reference).Max(o => o.Position) ?? 0) + 1);
 
-            _context.AccountsPostings.Add(accountsPostings);
+            using var transaction = await _context.Database.BeginTransactionAsync();
 
-            if (accountsPostings.ExpenseId != null && accountsPostings.Type == "P")
+            try
             {
-                var expense = await _context.Expenses.FindAsync(accountsPostings.ExpenseId);
+                _context.AccountsPostings.Add(accountsPostings);
 
-                if (expense != null)
+                if (accountsPostings.ExpenseId != null && accountsPostings.Type == "P")
                 {
-                    expense.Scheduled = false;
-                }
-            }
+                    Expenses? expense = await _context.Expenses.FindAsync(accountsPostings.ExpenseId);
 
-            return await _context.SaveChangesAsync();
+                    if (expense != null)
+                    {
+                        expense.Scheduled = false;
+                    }
+                }
+
+                await _context.SaveChangesAsync();
+                await ReorderPositionsByDateCore(accountsPostings.AccountId, accountsPostings.Reference!);
+                int rows = await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return rows;
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
         }
 
         public async Task<int> DeleteAccountsPostings(AccountsPostings accountsPostings)
@@ -377,6 +394,51 @@ namespace BudgetAPI.Services
             {
                 await tx.RollbackAsync();
                 throw;
+            }
+        }
+
+        public async Task ReorderPositionsByDate(int accountId, string reference)
+        {
+            if (!ValidateAccountAndUser(accountId))
+            {
+                throw new InvalidOperationException("Conta não encontrada para o usuário atual.");
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                await ReorderPositionsByDateCore(accountId, reference);
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        private async Task ReorderPositionsByDateCore(int accountId, string reference)
+        {
+            List<AccountsPostings> postings = await _context.AccountsPostings
+                .Where(ap => ap.AccountId == accountId
+                          && ap.Reference == reference
+                          && ap.Account!.UserId == _user.Id)
+                .OrderBy(ap => ap.Date)
+                .ThenBy(ap => ap.Type == "Y" || ap.Type == "y" ? 0 : 1)
+                .ThenBy(ap => ap.Position)
+                .ThenBy(ap => ap.Id)
+                .ToListAsync();
+
+            if (postings.Count > short.MaxValue + 1)
+            {
+                throw new InvalidOperationException("A quantidade de lançamentos excede o limite de posições permitido.");
+            }
+
+            for (int index = 0; index < postings.Count; index++)
+            {
+                postings[index].Position = checked((short)index);
             }
         }
 
@@ -656,6 +718,67 @@ namespace BudgetAPI.Services
                 .FirstOrDefaultAsync();
 
             return previousYield;
+        }
+
+        public async Task<AccountHistoricalBalanceDTO> GetHistoricalBalance(int accountId, DateTime date, int? excludePostingId)
+        {
+            DateTime limitDate = date.Date;
+
+            IQueryable<AccountsPostings> postingsBeforeDate = _context.AccountsPostings
+                .AsNoTracking()
+                .Where(ap => ap.AccountId == accountId
+                          && ap.Account!.UserId == _user.Id
+                          && ap.Date < limitDate);
+
+            if (excludePostingId.HasValue)
+            {
+                postingsBeforeDate = postingsBeforeDate.Where(ap => ap.Id != excludePostingId.Value);
+            }
+
+            AccountsPostings? lastYield = await postingsBeforeDate
+                .Where(ap => ap.Type == "Y" || ap.Type == "y")
+                .OrderByDescending(ap => ap.Date)
+                .ThenByDescending(ap => ap.Position)
+                .ThenByDescending(ap => ap.Id)
+                .FirstOrDefaultAsync();
+
+            if (lastYield == null || !lastYield.TotalGrossBalance.HasValue)
+            {
+                decimal fallbackBalance = await postingsBeforeDate.SumAsync(ap => ap.Amount);
+                decimal fallbackGrossBalance = await postingsBeforeDate.SumAsync(ap =>
+                    ap.Type == "Y" || ap.Type == "y"
+                        ? ap.GrossAmount ?? ap.Amount
+                        : ap.Amount);
+
+                return new AccountHistoricalBalanceDTO
+                {
+                    Balance = fallbackBalance,
+                    GrossBalance = fallbackGrossBalance
+                };
+            }
+
+            IQueryable<AccountsPostings> postingsAfterLastYield = postingsBeforeDate
+                .Where(ap => ap.Date > lastYield.Date
+                          || (ap.Date == lastYield.Date
+                              && (ap.Position > lastYield.Position
+                                  || (ap.Position == lastYield.Position && ap.Id > lastYield.Id))));
+
+            decimal balanceAfterLastYield = await postingsAfterLastYield.SumAsync(ap => ap.Amount);
+            decimal grossBalanceAfterLastYield = await postingsAfterLastYield.SumAsync(ap =>
+                ap.Type == "Y" || ap.Type == "y"
+                    ? ap.GrossAmount ?? ap.Amount
+                    : ap.Amount);
+
+            decimal confirmedGrossBalance = lastYield.TotalGrossBalance.Value;
+            decimal confirmedBalance = confirmedGrossBalance
+                                     - (lastYield.TotalIOF ?? 0)
+                                     - (lastYield.TotalIR ?? 0);
+
+            return new AccountHistoricalBalanceDTO
+            {
+                Balance = confirmedBalance + balanceAfterLastYield,
+                GrossBalance = confirmedGrossBalance + grossBalanceAfterLastYield
+            };
         }
 
         public async Task<decimal> GetTotalPreviousYields(int accountId, string reference)

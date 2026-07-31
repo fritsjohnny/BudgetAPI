@@ -181,6 +181,21 @@ namespace BudgetAPI.Controllers
             }
         }
 
+        [HttpPut("ReorderByDate/{accountId}/{reference}")]
+        public async Task<IActionResult> ReorderPositionsByDate(int accountId, string reference)
+        {
+            if (accountId <= 0 ||
+                string.IsNullOrWhiteSpace(reference) ||
+                !_accountPostingService.ValidateAccountAndUser(accountId))
+            {
+                return BadRequest();
+            }
+
+            await _accountPostingService.ReorderPositionsByDate(accountId, reference);
+
+            return Ok();
+        }
+
         [HttpPut("SetPositions")]
         public async Task<ActionResult<AccountsPostings>> SetPositions(List<AccountsPostings> accountsPostings)
         {
@@ -236,6 +251,25 @@ namespace BudgetAPI.Controllers
             int id = await _accountPostingService.GenerateCardReceiptFromAccountPosting(accountPostingId, cardId, peopleId);
            
             return Ok(id);
+        }
+
+        [HttpGet("historicalbalance/{accountId:int}")]
+        public async Task<ActionResult<AccountHistoricalBalanceDTO>> GetHistoricalBalance(
+            int accountId,
+            [FromQuery] DateTime date,
+            [FromQuery] int? excludePostingId = null)
+        {
+            if (!_accountPostingService.ValidateAccountAndUser(accountId))
+            {
+                return BadRequest("Conta inválida ou não pertence ao usuário.");
+            }
+
+            AccountHistoricalBalanceDTO balance = await _accountPostingService.GetHistoricalBalance(
+                accountId,
+                date,
+                excludePostingId);
+
+            return Ok(balance);
         }
 
         [HttpGet("previousyield/{accountId:int}/{reference}")]
