@@ -42,6 +42,12 @@ namespace BudgetAPI.Controllers
             return cardsPostings;
         }
 
+        [HttpGet("RecentCategoriesByDescription")]
+        public async Task<ActionResult<IEnumerable<int>>> RecentCategoriesByDescription([FromQuery] string description, [FromQuery] int take = 3)
+        {
+            return await _cardPostingService.GetRecentCategoryIdsByDescription(description, take);
+        }
+
         [HttpGet("{cardId}/{reference}")]
         public async Task<ActionResult<IEnumerable<CardsPostingsDTO>>> GetCardsPostings(int cardId, string reference)
         {

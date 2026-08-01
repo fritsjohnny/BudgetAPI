@@ -14,6 +14,7 @@ namespace BudgetAPI.Services
         IQueryable<CardsPostingsDTO> GetCardsPostingsById(int id);
         IQueryable<CardsPostingsDTO> GetCardsPostings(int cardId, string reference);
         Task<CardsPostings?> GetCardsPostingsByDescription(string description);
+        Task<List<int>> GetRecentCategoryIdsByDescription(string description, int take = 3);
         IQueryable<CardsPostings> GetCardsPostingsByPeopleId(int peopleId, string reference);
         IQueryable<CardsPostingsPeople> GetCardsPostingsPeople(int cardId, string reference);
         IQueryable<CardsPostingsDTO> GetCardsPostingsByReferences(string initialReference, string finalReference, int categoryId, bool others);
@@ -235,6 +236,19 @@ namespace BudgetAPI.Services
                 CategoryId = categoryId,
                 PeopleId = peopleId
             };
+        }
+
+        public async Task<List<int>> GetRecentCategoryIdsByDescription(string description, int take = 5)
+        {
+            string normalizedDescription = (description ?? string.Empty).Trim().ToLower();
+            var ids = await _context.CardsPostings
+                .Where(cp => cp.Card!.UserId == _user.Id && cp.CategoryId != null &&
+                    cp.Description != null && cp.Description.ToLower().Trim() == normalizedDescription)
+                .OrderByDescending(cp => cp.Id)
+                .Select(cp => cp.CategoryId!.Value)
+                .ToListAsync();
+
+            return ids.Distinct().Take(Math.Max(1, take)).ToList();
         }
 
         public IQueryable<CardsPostingsDTO> GetCardsPostings(int cardId, string reference)
