@@ -267,7 +267,11 @@ namespace BudgetAPI.Services
 
                         if (!preserveFutureValues)
                         {
-                            item.ToPay         = GetFutureToPay(expense, item);
+                            // Em uma edição repetida, o valor informado pelo usuário
+                            // é o valor desejado para a parcela atual e para as futuras.
+                            // Não redistribuir TotalToPay aqui: isso desfaz ajustes de
+                            // centavos feitos manualmente na parcela editada.
+                            item.ToPay         = expense.ToPay;
                             item.TotalToPay    = expense.TotalToPay;
                             item.ExpectedValue = expense.ExpectedValue;
                         }
@@ -1116,24 +1120,6 @@ namespace BudgetAPI.Services
             decimal difference = totalToPay - (toPay * parcels);
 
             return parcelNumber == 1 ? toPay + difference : toPay;
-        }
-
-        private static decimal GetFutureToPay(Expenses sourceExpense, Expenses targetExpense)
-        {
-            if (sourceExpense.TotalToPay != 0 &&
-                targetExpense.Parcels.HasValue &&
-                targetExpense.Parcels.Value > 1 &&
-                targetExpense.ParcelNumber.HasValue &&
-                targetExpense.ParcelNumber.Value >= 1 &&
-                targetExpense.ParcelNumber.Value <= targetExpense.Parcels.Value)
-            {
-                return GetParcelAmount(
-                    sourceExpense.TotalToPay,
-                    targetExpense.Parcels.Value,
-                    targetExpense.ParcelNumber.Value);
-            }
-
-            return sourceExpense.ToPay;
         }
 
         private async Task<(int? CurrentRelatedId, List<Expenses> FutureExpenses)> GetFutureExpensesForRepeatAsync(

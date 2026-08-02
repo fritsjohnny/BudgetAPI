@@ -413,11 +413,6 @@ namespace BudgetAPI.Services
                     cardPosting.RelatedId = currentRelatedId;
                     futurePostings       = resolvedFuturePostings;
 
-                    if (!preserveFutureValues)
-                    {
-                        cardPosting.Amount =
-                            GetFutureAmount(cardPosting, cardPosting);
-                    }
                 }
 
                 if (futurePostings != null)
@@ -470,17 +465,15 @@ namespace BudgetAPI.Services
 
                         if (!preserveFutureValues)
                         {
-                            item.Amount = GetFutureAmount(
-                                cardPosting,
-                                item);
-
-                            item.TotalAmount =
-                                cardPosting.TotalAmount;
+                            // Em uma edição repetida, o valor informado pelo usuário
+                            // é o valor desejado para a parcela atual e para as futuras.
+                            // Não redistribuir TotalAmount aqui: isso desfaz ajustes de
+                            // centavos feitos manualmente na parcela editada.
+                            item.Amount      = cardPosting.Amount;
+                            item.TotalAmount = cardPosting.TotalAmount;
                         }
 
-                        _context.Entry(item).State =
-                            EntityState.Modified;
-
+                        _context.Entry(item).State = EntityState.Modified;
                     }
                 }
 
@@ -1694,24 +1687,6 @@ namespace BudgetAPI.Services
             decimal difference = totalAmount - (amount * parcels);
 
             return parcelNumber == 1 ? amount + difference : amount;
-        }
-
-        private static decimal GetFutureAmount(CardsPostings sourcePosting, CardsPostings targetPosting)
-        {
-            if (sourcePosting.TotalAmount.HasValue &&
-                targetPosting.Parcels.HasValue &&
-                targetPosting.Parcels.Value > 1 &&
-                targetPosting.ParcelNumber.HasValue &&
-                targetPosting.ParcelNumber.Value >= 1 &&
-                targetPosting.ParcelNumber.Value <= targetPosting.Parcels.Value)
-            {
-                return GetParcelAmount(
-                    sourcePosting.TotalAmount.Value,
-                    targetPosting.Parcels.Value,
-                    targetPosting.ParcelNumber.Value);
-            }
-
-            return sourcePosting.Amount;
         }
 
         private async Task<(int? CurrentRelatedId, List<CardsPostings> FuturePostings)> GetFutureCardPostingsForRepeatAsync(CardsPostings savedCardPosting, string originalDescription)
