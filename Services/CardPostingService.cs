@@ -211,30 +211,22 @@ namespace BudgetAPI.Services
         {
             string normalizedDescription = (description ?? string.Empty).Trim().ToLower();
 
-            IQueryable<CardsPostings> cardsPostings = _context.CardsPostings
+            IQueryable<CardsPostings> matchingPostings = _context.CardsPostings
                 .Where(cp => cp.Card!.UserId == _user.Id &&
                              cp.Description != null &&
                              cp.Description.ToLower().Trim() == normalizedDescription);
 
-            int? categoryId = await cardsPostings
-                .Where(cp => cp.CategoryId != null)
-                .OrderByDescending(cp => cp.Id)
-                .Select(cp => cp.CategoryId)
+            CardsPostings? latestPosting = await matchingPostings
+                .OrderByDescending(cp => cp.Date)
+                .ThenByDescending(cp => cp.Id)
                 .FirstOrDefaultAsync();
 
-            int? peopleId = await cardsPostings
-                .Where(cp => cp.PeopleId != null)
-                .OrderByDescending(cp => cp.Id)
-                .Select(cp => cp.PeopleId)
-                .FirstOrDefaultAsync();
-
-            if (!categoryId.HasValue && !peopleId.HasValue)
-                return null;
+            if (latestPosting == null) return null;
 
             return new CardsPostings
             {
-                CategoryId = categoryId,
-                PeopleId = peopleId
+                CategoryId = latestPosting.CategoryId,
+                PeopleId = latestPosting.PeopleId
             };
         }
 
@@ -244,7 +236,8 @@ namespace BudgetAPI.Services
             var ids = await _context.CardsPostings
                 .Where(cp => cp.Card!.UserId == _user.Id && cp.CategoryId != null &&
                     cp.Description != null && cp.Description.ToLower().Trim() == normalizedDescription)
-                .OrderByDescending(cp => cp.Id)
+                .OrderByDescending(cp => cp.Date)
+                .ThenByDescending(cp => cp.Id)
                 .Select(cp => cp.CategoryId!.Value)
                 .ToListAsync();
 
