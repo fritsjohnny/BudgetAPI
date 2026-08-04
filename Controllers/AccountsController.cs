@@ -12,10 +12,20 @@ namespace BudgetAPI.Controllers
     public class AccountsController : ControllerBase
     {
         private readonly IAccountService _accountService;
+        private readonly IInvestmentStrategyService _investmentStrategyService;
 
-        public AccountsController(IAccountService accountService)
+        public AccountsController(IAccountService accountService, IInvestmentStrategyService investmentStrategyService)
         {
             _accountService = accountService;
+            _investmentStrategyService = investmentStrategyService;
+        }
+
+        [HttpPost("InvestmentStrategyReport")]
+        public async Task<ActionResult<InvestmentStrategyReportDTO>> GetInvestmentStrategyReport([FromBody] InvestmentStrategyRequestDTO request)
+        {
+            try { return Ok(await _investmentStrategyService.GetReport(request)); }
+            catch (ArgumentException ex) { return BadRequest(ex.Message); }
+            catch (InvalidOperationException ex) { return NotFound(ex.Message); }
         }
 
         [HttpGet("Totals")]

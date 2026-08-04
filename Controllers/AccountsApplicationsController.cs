@@ -60,6 +60,10 @@ namespace BudgetAPI.Controllers
             {
                 return Problem(uaex.Message, statusCode: 403);
             }
+            catch (ArgumentException aex)
+            {
+                return BadRequest(aex.Message);
+            }
             catch (Exception ex)
             {
                 return Problem(ex.Message);
@@ -80,6 +84,10 @@ namespace BudgetAPI.Controllers
             catch (UnauthorizedAccessException uaex)
             {
                 return Problem(uaex.Message, statusCode: 403);
+            }
+            catch (ArgumentException aex)
+            {
+                return BadRequest(aex.Message);
             }
             catch (Exception ex)
             {
@@ -125,18 +133,11 @@ namespace BudgetAPI.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)
         {
-            AccountsApplications? app = await _accountsApplicationsService.GetApplication(id).FirstOrDefaultAsync();
-
-            if (app == null)
-                return NotFound();
-
-            if (!_accountsApplicationsService.ValidateAccountOwnership(app.AccountId))
-                return Problem("Conta não pertence ao usuário.", statusCode: 403);
-
             try
             {
-                await _accountsApplicationsService.DeleteApplication(app);
+                await _accountsApplicationsService.DisableApplication(id);
             }
+            catch (KeyNotFoundException) { return NotFound(); }
             catch (Exception ex)
             {
                 return Problem(ex.Message);

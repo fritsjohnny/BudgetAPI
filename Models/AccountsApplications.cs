@@ -24,6 +24,8 @@
         /// Valor bruto aportado em R$ (não inclui rendimentos).
         /// </summary>
         public decimal AmountApplied { get; set; }
+        public decimal? MaximumAmount { get; set; }
+        public bool Disabled { get; set; }
 
         /// <summary>
         /// Percentual do CDI contratado (fração: 1.07 = 107%). NULO para prefixado.

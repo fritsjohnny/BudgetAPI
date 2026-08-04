@@ -44,6 +44,7 @@ builder.Services.AddScoped<IIncomeService, IncomeService>();
 builder.Services.AddScoped<IPeopleService, PeopleService>();
 builder.Services.AddScoped<IAccountApplicationService, AccountApplicationService>();
 builder.Services.AddScoped<IAccountYieldRangeService, AccountYieldRangeService>();
+builder.Services.AddScoped<IInvestmentStrategyService, InvestmentStrategyService>();
 builder.Services.AddScoped<IAnnualSavingsService, AnnualSavingsService>();
 builder.Services.AddScoped<IFinancialHealthService, FinancialHealthService>();
 builder.Services.AddScoped<ICardsInvoiceClosingService, CardsInvoiceClosingService>();

@@ -409,7 +409,8 @@ namespace BudgetAPI.Services
                 .Where(application =>
                     accountIds.Contains(application.AccountId) &&
                     application.MaturityDate.HasValue &&
-                    application.MaturityDate.Value >= userToday)
+                    application.MaturityDate.Value >= userToday &&
+                    !application.Disabled)
                 .GroupBy(application => application.AccountId)
                 .Select(group => new AccountMaturityRaw
                 {

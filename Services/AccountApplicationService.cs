@@ -13,7 +13,7 @@ namespace BudgetAPI.Services
 
         Task<int> PostApplication(AccountsApplications application);
         Task<int> PutApplication(AccountsApplications application);
-        Task<int> DeleteApplication(AccountsApplications application);
+        Task<int> DisableApplication(int id);
         Task<int> BulkInsertApplications(List<AccountsApplications> applications);
 
         bool ValidateAccountOwnership(int accountId);
@@ -39,7 +39,7 @@ namespace BudgetAPI.Services
                               app => app.AccountId,
                               acc => acc.Id,
                               (app, acc) => new { app, acc })
-                        .Where(x => x.acc.UserId == _user.Id)
+                        .Where(x => x.acc.UserId == _user.Id && !x.app.Disabled)
                         .Select(x => x.app);
 
             return query;
@@ -54,7 +54,7 @@ namespace BudgetAPI.Services
                               app => app.AccountId,
                               acc => acc.Id,
                               (app, acc) => new { app, acc })
-                        .Where(x => x.acc.UserId == _user.Id)
+                        .Where(x => x.acc.UserId == _user.Id && !x.app.Disabled)
                         .Select(x => x.app);
 
             return query;
@@ -69,7 +69,7 @@ namespace BudgetAPI.Services
                               app => app.AccountId,
                               acc => acc.Id,
                               (app, acc) => new { app, acc })
-                        .Where(x => x.acc.UserId == _user.Id)
+                        .Where(x => x.acc.UserId == _user.Id && !x.app.Disabled)
                         .Select(x => x.app);
 
             return query;
@@ -77,6 +77,8 @@ namespace BudgetAPI.Services
 
         public async Task<int> PostApplication(AccountsApplications application)
         {
+            application.Disabled = false;
+            ValidateMaximumAmount(application.MaximumAmount);
             // segurança: não deixa criar para conta que não pertence ao usuário
             if (!ValidateAccountOwnership(application.AccountId))
                 throw new UnauthorizedAccessException("Conta não pertence ao usuário.");
@@ -108,9 +110,9 @@ namespace BudgetAPI.Services
                             Application = app,
                             Account = account
                         })
-                    .Where(x =>
+                        .Where(x =>
                         x.Application.Id == application.Id &&
-                        x.Account.UserId == _user.Id)
+                        x.Account.UserId == _user.Id && !x.Application.Disabled)
                     .Select(x => x.Application)
                     .FirstOrDefaultAsync();
 
@@ -126,22 +128,28 @@ namespace BudgetAPI.Services
                 saved.AccountId,
                 application.AccountId);
 
-            _context.Entry(saved)
-                .CurrentValues
-                .SetValues(application);
+            ValidateMaximumAmount(application.MaximumAmount);
+            saved.AccountId = application.AccountId;
+            saved.DateApplied = application.DateApplied;
+            saved.AmountApplied = application.AmountApplied;
+            saved.MaximumAmount = application.MaximumAmount;
+            saved.CdiPercent = application.CdiPercent;
+            saved.FixedRate = application.FixedRate;
+            saved.MaturityDate = application.MaturityDate;
 
             return await _context.SaveChangesAsync();
         }
 
-        public Task<int> DeleteApplication(AccountsApplications application)
+        public async Task<int> DisableApplication(int id)
         {
-            // valida propriedade antes de remover
-            if (!ValidateAccountOwnership(application.AccountId))
-                throw new UnauthorizedAccessException("Conta não pertence ao usuário.");
-
-            _context.Set<AccountsApplications>().Remove(application);
-
-            return _context.SaveChangesAsync();
+            var application = await _context.AccountsApplications
+                .Join(_context.Accounts, app => app.AccountId, account => account.Id, (app, account) => new { app, account })
+                .Where(x => x.app.Id == id && x.account.UserId == _user.Id)
+                .Select(x => x.app).FirstOrDefaultAsync();
+            if (application == null) throw new KeyNotFoundException("Aplicação não encontrada.");
+            if (application.Disabled) return 0;
+            application.Disabled = true;
+            return await _context.SaveChangesAsync();
         }
 
         public async Task<int> BulkInsertApplications(List<AccountsApplications> applications)
@@ -161,6 +169,8 @@ namespace BudgetAPI.Services
 
             foreach (AccountsApplications app in applications)
             {
+                app.Disabled = false;
+                ValidateMaximumAmount(app.MaximumAmount);
                 if (app.CreatedAt == default(DateTime))
                     app.CreatedAt = DateTime.UtcNow;
 
@@ -179,7 +189,7 @@ namespace BudgetAPI.Services
         {
             // restringe ao usuário atual via join
             bool exists = _context.Set<AccountsApplications>()
-                                  .Where(a => a.Id == id)
+                                  .Where(a => a.Id == id && !a.Disabled)
                                   .Join(_context.Accounts,
                                         app => app.AccountId,
                                         acc => acc.Id,
@@ -187,6 +197,12 @@ namespace BudgetAPI.Services
                                   .Any(x => x.UserId == _user.Id);
 
             return exists;
+        }
+
+        private static void ValidateMaximumAmount(decimal? maximumAmount)
+        {
+            if (maximumAmount.HasValue && maximumAmount.Value <= 0)
+                throw new ArgumentException("O valor máximo deve ser maior que zero.");
         }
     }
 }

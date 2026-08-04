@@ -787,6 +787,7 @@ namespace BudgetAPI.Services
                                             from aa in _context.AccountsApplications
                                             join a in _context.Accounts on aa.AccountId equals a.Id
                                             where aa.AccountId == accountId
+                                               && !aa.Disabled
                                                && a.UserId == _user.Id
                                             orderby aa.DateApplied descending, aa.Id descending
                                             select (DateTime?)aa.DateApplied
