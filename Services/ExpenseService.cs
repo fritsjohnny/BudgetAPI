@@ -958,7 +958,7 @@ namespace BudgetAPI.Services
             return await _context.Expenses
                                  .Where(e => e.UserId == _user.Id &&
                                              e.DueDate != null &&
-                                             e.Paid != e.ToPay &&
+                                             (e.ToPay - Math.Abs(e.Paid)) > 0 &&
                                              e.DueDate <= today)
                                  .Select(e => e.Reference)
                                  .Where(reference => reference != null && reference != string.Empty)
