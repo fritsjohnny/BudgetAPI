@@ -951,9 +951,31 @@ namespace BudgetAPI.Services
             await _context.SaveChangesAsync();
         }
 
+        private DateTime GetUserLocalDate()
+        {
+            if (string.IsNullOrWhiteSpace(_user.TimezoneId))
+            {
+                return DateTime.UtcNow.Date;
+            }
+
+            try
+            {
+                TimeZoneInfo timezone = TimeZoneInfo.FindSystemTimeZoneById(_user.TimezoneId);
+                return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, timezone).Date;
+            }
+            catch (TimeZoneNotFoundException)
+            {
+                return DateTime.UtcNow.Date;
+            }
+            catch (InvalidTimeZoneException)
+            {
+                return DateTime.UtcNow.Date;
+            }
+        }
+
         public async Task<List<string>> GetUpcomingOrOverdueExpenseReferences()
         {
-            DateTime today = DateTime.Today;
+            DateTime today = GetUserLocalDate();
 
             return await _context.Expenses
                                  .Where(e => e.UserId == _user.Id &&
