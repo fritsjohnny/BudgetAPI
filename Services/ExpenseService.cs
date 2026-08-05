@@ -28,7 +28,7 @@ namespace BudgetAPI.Services
         bool ValidarUsuario(int expenseId);
         Task OrderByPreviousMonth(string reference);
         Task RepeatPreviousMonth(string reference);
-        Task<List<Expenses>> GetUpcomingOrOverdueExpenses(int daysAhead = 1);
+        Task<List<string>> GetUpcomingOrOverdueExpenseReferences();
         Task<ExpensesDTO?> AjustarValorComBaseNaCategoria(int expenseId);
         Task<int> RepeatFixedExpenses(string reference);
         IQueryable<ExpensesDueDateReportDTO> GetExpensesByDueDateRange(DateTime initialDate, DateTime finalDate);
@@ -951,21 +951,21 @@ namespace BudgetAPI.Services
             await _context.SaveChangesAsync();
         }
 
-        public async Task<List<Expenses>> GetUpcomingOrOverdueExpenses(int daysAhead = 1)
+        public async Task<List<string>> GetUpcomingOrOverdueExpenseReferences()
         {
-            DateTime today   = DateTime.Today;
-            DateTime maxDate = today.AddDays(daysAhead);
+            DateTime today = DateTime.Today;
 
-            List<Expenses>? expenses = await _context.Expenses.Where(e => e.UserId == _user.Id &&
-                                                                      e.DueDate != null &&
-                                                                      e.Paid != e.ToPay &&
-                                                                      (e.DueDate <= today || e.DueDate <= maxDate))
-                                                               .OrderBy(e => e.DueDate)
-                                                               .ToListAsync();
-
-            return expenses;
+            return await _context.Expenses
+                                 .Where(e => e.UserId == _user.Id &&
+                                             e.DueDate != null &&
+                                             e.Paid != e.ToPay &&
+                                             e.DueDate <= today)
+                                 .Select(e => e.Reference)
+                                 .Where(reference => reference != null && reference != string.Empty)
+                                 .Distinct()
+                                 .OrderBy(reference => reference)
+                                 .ToListAsync();
         }
-
         public async Task<ExpensesDTO?> AjustarValorComBaseNaCategoria(int expenseId)
         {
             if (expenseId == 0)

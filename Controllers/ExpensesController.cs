@@ -317,13 +317,12 @@ namespace BudgetAPI.Controllers
         }
 
         [HttpGet("Notify")]
-        public async Task<ActionResult<List<Expenses>>> GetUpcomingOrOverdueExpenses(int daysAhead = 1)
+        public async Task<ActionResult<List<string>>> GetUpcomingOrOverdueExpenseReferences()
         {
-            var expenses = await _expenseService.GetUpcomingOrOverdueExpenses(daysAhead);
+            List<string> references = await _expenseService.GetUpcomingOrOverdueExpenseReferences();
 
-            return expenses;
+            return Ok(references);
         }
-
         [HttpPost("AjustarPorCategoria/{id}")]
         public async Task<IActionResult> AjustarPorCategoria(int id)
         {
