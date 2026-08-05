@@ -28,7 +28,7 @@ namespace BudgetAPI.Services
         bool ValidarUsuario(int expenseId);
         Task OrderByPreviousMonth(string reference);
         Task RepeatPreviousMonth(string reference);
-        Task<List<string>> GetUpcomingOrOverdueExpenseReferences();
+        Task<List<ExpenseNotificationReferenceDTO>> GetUpcomingOrOverdueExpenseReferences();
         Task<ExpensesDTO?> AjustarValorComBaseNaCategoria(int expenseId);
         Task<int> RepeatFixedExpenses(string reference);
         IQueryable<ExpensesDueDateReportDTO> GetExpensesByDueDateRange(DateTime initialDate, DateTime finalDate);
@@ -973,7 +973,7 @@ namespace BudgetAPI.Services
             }
         }
 
-        public async Task<List<string>> GetUpcomingOrOverdueExpenseReferences()
+        public async Task<List<ExpenseNotificationReferenceDTO>> GetUpcomingOrOverdueExpenseReferences()
         {
             DateTime today = GetUserLocalDate();
 
@@ -981,13 +981,20 @@ namespace BudgetAPI.Services
                                  .Where(e => e.UserId == _user.Id &&
                                              e.DueDate != null &&
                                              (e.ToPay - Math.Abs(e.Paid)) > 0 &&
-                                             e.DueDate <= today)
-                                 .Select(e => e.Reference)
-                                 .Where(reference => reference != null && reference != string.Empty)
-                                 .Distinct()
-                                 .OrderBy(reference => reference)
+                                             e.DueDate <= today &&
+                                             e.Reference != null &&
+                                             e.Reference != string.Empty)
+                                 .GroupBy(e => e.Reference!)
+                                 .Select(group => new ExpenseNotificationReferenceDTO
+                                 {
+                                     Reference = group.Key,
+                                     HasDueToday = group.Any(e => e.DueDate!.Value.Date == today),
+                                     HasOverdue = group.Any(e => e.DueDate!.Value.Date < today)
+                                 })
+                                 .OrderBy(result => result.Reference)
                                  .ToListAsync();
         }
+
         public async Task<ExpensesDTO?> AjustarValorComBaseNaCategoria(int expenseId)
         {
             if (expenseId == 0)
