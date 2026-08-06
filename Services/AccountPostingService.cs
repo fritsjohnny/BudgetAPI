@@ -1,4 +1,4 @@
-﻿using BudgetAPI.Data;
+using BudgetAPI.Data;
 using BudgetAPI.Models;
 using BudgetAPI.Helpers;
 using Microsoft.EntityFrameworkCore;
@@ -39,14 +39,14 @@ namespace BudgetAPI.Services
 
         public IQueryable<AccountsPostings> GetAccountsPostings()
         {
-            return _context.AccountsPostings.Include(a => a.Account)
+            return _context.AccountsPostings.Include(a => a.Account).Include(a => a.ApplicationDetails)
                                             .Where(a => a.Account!.UserId == _user.Id)
                                             .OrderBy(a => a.Position);
         }
 
         public IQueryable<AccountsPostings> GetAccountsPostings(int id)
         {
-            IQueryable<AccountsPostings>? accountsPostings = _context.AccountsPostings.Include(a => a.Account)
+            IQueryable<AccountsPostings>? accountsPostings = _context.AccountsPostings.Include(a => a.Account).Include(a => a.ApplicationDetails)
                                                                                       .Where(a => a.Id == id && a.Account!.UserId == _user.Id);
 
             return accountsPostings;
@@ -54,7 +54,7 @@ namespace BudgetAPI.Services
 
         public IQueryable<AccountsPostings> GetAccountsPostings(int accountId, string reference)
         {
-            IOrderedQueryable<AccountsPostings>? accountsPostings = _context.AccountsPostings.Include(a => a.Account)
+            IOrderedQueryable<AccountsPostings>? accountsPostings = _context.AccountsPostings.Include(a => a.Account).Include(a => a.ApplicationDetails)
                                                                                              .Where(a => a.AccountId == accountId && a.Reference == reference && a.Account!.UserId == _user.Id)
                                                                                              .OrderBy(a => a.Position);
 
@@ -78,19 +78,102 @@ namespace BudgetAPI.Services
                 return;
             }
 
-            posting.GrossAmount = null;
+            posting.GrossAmount       = null;
             posting.TotalGrossBalance = null;
-            posting.TotalIOF = null;
-            posting.TotalIR = null;
-            posting.IOFElapsedDays = null;
+            posting.TotalIOF          = null;
+            posting.TotalIR           = null;
+            posting.IOFElapsedDays    = null;
         }
 
         // Método auxiliar para gerar descrições padronizadas
         private (string originDesc, string destinationDesc) GetTransferDescriptions(Accounts fromAccount, Accounts toAccount)
         {
-            string descOrigin      = $"Transferido para {toAccount.Name ?? "Conta destino"}";
+            string descOrigin = $"Transferido para {toAccount.Name ?? "Conta destino"}";
             string descDestination = $"Recebido de {fromAccount.Name ?? "Conta origem"}";
+
             return (descOrigin, descDestination);
+        }
+
+        private async Task ApplyYieldDetailsAsync(AccountsPostings posting, bool replaceDetails)
+        {
+            if (!string.Equals(posting.Type, "Y", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            List<AccountsPostingApplicationDetails> requestDetails =
+                (posting.ApplicationDetails ?? new List<AccountsPostingApplicationDetails>()).ToList();
+
+            if (requestDetails.Count == 0)
+            {
+                if (replaceDetails)
+                {
+                    var oldDetails = await _context.AccountsPostingApplicationDetails
+                        .Where(x => x.AccountPostingId == posting.Id)
+                        .ToListAsync();
+                    _context.AccountsPostingApplicationDetails.RemoveRange(oldDetails);
+                }
+
+                return;
+            }
+
+            var ids = requestDetails.Select(x => x.AccountApplicationId).Distinct().ToList();
+            var valid = await _context.AccountsApplications
+                .Where(x => x.AccountId == posting.AccountId && !x.Disabled && ids.Contains(x.Id))
+                .Select(x => x.Id)
+                .ToListAsync();
+
+            if (valid.Count != ids.Count)
+                throw new ArgumentException("Uma aplicação informada não pertence à conta ou está desabilitada.");
+
+            var details = requestDetails
+                .Select(x => new AccountsPostingApplicationDetails
+                {
+                    Id = 0,
+                    AccountPostingId = posting.Id,
+                    AccountApplicationId = x.AccountApplicationId,
+                    Amount = x.Amount,
+                    GrossAmount = x.GrossAmount,
+                    TotalGrossBalance = x.TotalGrossBalance,
+                    TotalBalance = x.TotalBalance,
+                    TotalIOF = x.TotalIOF,
+                    TotalIR = x.TotalIR,
+                    IOFElapsedDays = x.IOFElapsedDays,
+                    CreatedAt = x.CreatedAt
+                })
+                .ToList();
+
+            foreach (var detail in details)
+            {
+                detail.Amount = Math.Round(detail.Amount, 2);
+                if (detail.GrossAmount.HasValue) detail.GrossAmount = Math.Round(detail.GrossAmount.Value, 2);
+                if (detail.TotalGrossBalance.HasValue) detail.TotalGrossBalance = Math.Round(detail.TotalGrossBalance.Value, 2);
+                if (detail.TotalBalance.HasValue) detail.TotalBalance = Math.Round(detail.TotalBalance.Value, 2);
+                if (detail.TotalIOF.HasValue) detail.TotalIOF = Math.Round(detail.TotalIOF.Value, 2);
+                if (detail.TotalIR.HasValue) detail.TotalIR = Math.Round(detail.TotalIR.Value, 2);
+            }
+
+            if (replaceDetails)
+            {
+                var oldDetails = await _context.AccountsPostingApplicationDetails
+                    .Where(x => x.AccountPostingId == posting.Id)
+                    .ToListAsync();
+                _context.AccountsPostingApplicationDetails.RemoveRange(oldDetails);
+            }
+
+            foreach (var detail in details)
+            {
+                _context.AccountsPostingApplicationDetails.Add(detail);
+            }
+
+            posting.Amount = details.Sum(x => x.Amount);
+            posting.GrossAmount = details.Sum(x => x.GrossAmount ?? 0m);
+            posting.TotalGrossBalance = details.Sum(x => x.TotalGrossBalance ?? 0m);
+            posting.TotalIOF = details.Sum(x => x.TotalIOF ?? 0m);
+            posting.TotalIR = details.Sum(x => x.TotalIR ?? 0m);
+            posting.IOFElapsedDays = details
+                .Where(x => x.IOFElapsedDays.HasValue)
+                .Select(x => x.IOFElapsedDays!.Value)
+                .DefaultIfEmpty()
+                .Max();
         }
 
         public async Task<int> PutAccountsPostings(AccountsPostings accountsPostings)
@@ -122,6 +205,8 @@ namespace BudgetAPI.Services
             }
 
             _context.Entry(entity).CurrentValues.SetValues(accountsPostings);
+            entity.ApplicationDetails = accountsPostings.ApplicationDetails ?? new List<AccountsPostingApplicationDetails>();
+            await ApplyYieldDetailsAsync(entity, true);
 
             return await _context.SaveChangesAsync();
         }
@@ -165,7 +250,7 @@ namespace BudgetAPI.Services
                 throw new InvalidOperationException("Não é permitido alterar a referência (mês) de uma transferência. Delete e crie uma nova transferência.");
             }
 
-            AccountsPostings origin      = (current.Type == "P") ? current : related;
+            AccountsPostings origin = (current.Type == "P") ? current : related;
             AccountsPostings destination = (origin.Id == current.Id) ? related : current;
 
             // Mapear os dados do request para os lançamentos corretos
@@ -176,17 +261,17 @@ namespace BudgetAPI.Services
             {
                 // Request veio do lançamento de origem
                 requestedFromAccountId = request.AccountId;
-                requestedToAccountId = request.ToAccountId!.Value;
+                requestedToAccountId   = request.ToAccountId!.Value;
             }
             else
             {
                 // Request veio do lançamento de destino - inverter
                 requestedFromAccountId = request.ToAccountId!.Value;
-                requestedToAccountId = request.AccountId;
+                requestedToAccountId   = request.AccountId;
             }
 
             Accounts? fromAccount = await _context.Accounts.FirstOrDefaultAsync(a => a.Id == requestedFromAccountId);
-            Accounts? toAccount   = await _context.Accounts.FirstOrDefaultAsync(a => a.Id == requestedToAccountId);
+            Accounts? toAccount = await _context.Accounts.FirstOrDefaultAsync(a => a.Id == requestedToAccountId);
 
             if (fromAccount == null || toAccount == null) throw new ArgumentException("Conta de origem e/ou conta de destino não encontrada.");
             if (fromAccount.UserId != _user.Id || toAccount.UserId != _user.Id) throw new ArgumentException("Não é permitido transferir entre contas de usuários diferentes.");
@@ -243,7 +328,7 @@ namespace BudgetAPI.Services
                 if (fromTotals == null) throw new InvalidOperationException("Não foi possível obter o saldo atual da conta de origem.");
 
                 decimal balanceWithoutThisTransfer = fromTotals.TotalBalance + oldAmount;
-                decimal projectedBalance           = balanceWithoutThisTransfer - newAmount;
+                decimal projectedBalance = balanceWithoutThisTransfer - newAmount;
 
                 if (projectedBalance < 0)
                     throw new InvalidOperationException($"Transferência não permitida: saldo insuficiente. Saldo disponível: {balanceWithoutThisTransfer:C}, necessário: {newAmount:C}");
@@ -276,7 +361,7 @@ namespace BudgetAPI.Services
                 NormalizeYieldFields(origin);
                 NormalizeYieldFields(destination);
 
-                _context.Entry(origin).State      = EntityState.Modified;
+                _context.Entry(origin).State = EntityState.Modified;
                 _context.Entry(destination).State = EntityState.Modified;
 
                 int rows = await _context.SaveChangesAsync();
@@ -315,6 +400,9 @@ namespace BudgetAPI.Services
 
             try
             {
+                List<AccountsPostingApplicationDetails> requestDetails =
+                    (accountsPostings.ApplicationDetails ?? new List<AccountsPostingApplicationDetails>()).ToList();
+                accountsPostings.ApplicationDetails = new List<AccountsPostingApplicationDetails>();
                 _context.AccountsPostings.Add(accountsPostings);
 
                 if (accountsPostings.ExpenseId != null && accountsPostings.Type == "P")
@@ -327,6 +415,9 @@ namespace BudgetAPI.Services
                     }
                 }
 
+                await _context.SaveChangesAsync();
+                accountsPostings.ApplicationDetails = requestDetails;
+                await ApplyYieldDetailsAsync(accountsPostings, false);
                 await _context.SaveChangesAsync();
                 await ReorderPositionsByDateCore(accountsPostings.AccountId, accountsPostings.Reference!);
                 int rows = await _context.SaveChangesAsync();
@@ -489,7 +580,7 @@ namespace BudgetAPI.Services
             if (accountPosting == null) throw new ArgumentException("Dados da transferência não informados.");
 
             int fromAccountId = accountPosting.AccountId;
-            int toAccountId   = accountPosting.ToAccountId ?? 0;
+            int toAccountId = accountPosting.ToAccountId ?? 0;
 
             if (fromAccountId <= 0 || toAccountId <= 0) throw new ArgumentException("Conta de origem e conta de destino são obrigatórias.");
             if (fromAccountId == toAccountId) throw new ArgumentException("A conta de origem deve ser diferente da conta de destino.");
@@ -500,7 +591,7 @@ namespace BudgetAPI.Services
             if (amount <= 0) throw new ArgumentException("Valor da transferência deve ser maior que zero.");
 
             Accounts? fromAccount = await _context.Accounts.FirstOrDefaultAsync(a => a.Id == fromAccountId);
-            Accounts? toAccount   = await _context.Accounts.FirstOrDefaultAsync(a => a.Id == toAccountId);
+            Accounts? toAccount = await _context.Accounts.FirstOrDefaultAsync(a => a.Id == toAccountId);
 
             if (fromAccount == null || toAccount == null) throw new ArgumentException("Conta de origem e/ou conta de destino não encontrada.");
             if (fromAccount.UserId != _user.Id || toAccount.UserId != _user.Id) throw new ArgumentException("Não é permitido transferir entre contas de usuários diferentes.");
@@ -574,7 +665,7 @@ namespace BudgetAPI.Services
                 originPosting.RelatedId      = destinationPosting.Id;
                 destinationPosting.RelatedId = originPosting.Id;
 
-                _context.Entry(originPosting).State      = EntityState.Modified;
+                _context.Entry(originPosting).State = EntityState.Modified;
                 _context.Entry(destinationPosting).State = EntityState.Modified;
 
                 int rows = await _context.SaveChangesAsync();
@@ -748,7 +839,7 @@ namespace BudgetAPI.Services
 
                 return new AccountHistoricalBalanceDTO
                 {
-                    Balance = fallbackBalance,
+                    Balance      = fallbackBalance,
                     GrossBalance = fallbackGrossBalance
                 };
             }
@@ -772,7 +863,7 @@ namespace BudgetAPI.Services
 
             return new AccountHistoricalBalanceDTO
             {
-                Balance = confirmedBalance + balanceAfterLastYield,
+                Balance      = confirmedBalance + balanceAfterLastYield,
                 GrossBalance = confirmedGrossBalance + grossBalanceAfterLastYield
             };
         }

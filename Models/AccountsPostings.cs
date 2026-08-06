@@ -24,5 +24,6 @@
         public int? IOFElapsedDays { get; set; }
         public int? ToAccountId { get; set; }
         public int? RelatedId { get; set; }
+        public ICollection<AccountsPostingApplicationDetails> ApplicationDetails { get; set; } = new List<AccountsPostingApplicationDetails>();
     }
 }

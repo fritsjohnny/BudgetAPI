@@ -40,7 +40,23 @@ namespace BudgetAPI.Data
                     .HasForeignKey(closing => closing.CardId)
                     .OnDelete(DeleteBehavior.Cascade);
             });
-            
+
+            modelBuilder.Entity<AccountsPostingApplicationDetails>(entity =>
+            {
+                entity.ToTable("AccountsPostingApplicationDetails", "dbo");
+                entity.HasKey(x => x.Id);
+                entity.Property(x => x.Amount).HasColumnType("decimal(18,2)").IsRequired();
+                entity.Property(x => x.GrossAmount).HasColumnType("decimal(18,2)");
+                entity.Property(x => x.TotalGrossBalance).HasColumnType("decimal(18,2)");
+                entity.Property(x => x.TotalBalance).HasColumnType("decimal(18,2)");
+                entity.Property(x => x.TotalIOF).HasColumnType("decimal(18,2)");
+                entity.Property(x => x.TotalIR).HasColumnType("decimal(18,2)");
+                entity.HasIndex(x => new { x.AccountPostingId, x.AccountApplicationId }).IsUnique();
+                entity.HasIndex(x => x.AccountApplicationId);
+                entity.HasOne(x => x.AccountPosting).WithMany(x => x.ApplicationDetails).HasForeignKey(x => x.AccountPostingId).OnDelete(DeleteBehavior.Cascade);
+                entity.HasOne(x => x.AccountApplication).WithMany().HasForeignKey(x => x.AccountApplicationId).OnDelete(DeleteBehavior.NoAction);
+            });
+
             modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetAccountTotals), new[] { typeof(int), typeof(string), typeof(int) }));
             modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetAccountsSummary), new[] { typeof(string), typeof(int) }));
             modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetTotalsAccountsSummary), new[] { typeof(string), typeof(int) }));
@@ -63,7 +79,7 @@ namespace BudgetAPI.Data
         public IQueryable<AccountsYieldsDTO> GetAccountsYields(string? reference, int? accountId, int userId) => FromExpression(() => GetAccountsYields(reference, accountId, userId));
         public IQueryable<AnnualSavingsMonthProjectionDTO> GetAnnualSavings(int year, int userId, bool includeCurrentMonth, bool includeNextMonths) => FromExpression(() => GetAnnualSavings(year, userId, includeCurrentMonth, includeNextMonths));
         public IQueryable<AnnualSavingsConsolidatedDTO> GetAnnualSavingsConsolidated(int userId, bool includeCurrentYear, bool includeNextYears, bool includeCurrentMonth, bool includeNextMonths) => FromExpression(() => GetAnnualSavingsConsolidated(userId, includeCurrentYear, includeNextYears, includeCurrentMonth, includeNextMonths));
-        
+
         public DbSet<Accounts> Accounts { get; set; }
         public DbSet<Cards> Cards { get; set; }
         public DbSet<Users> Users { get; set; }
@@ -77,5 +93,6 @@ namespace BudgetAPI.Data
         public DbSet<AccountsApplications> AccountsApplications { get; set; }
         public DbSet<AccountYieldRanges> AccountYieldRanges { get; set; }
         public DbSet<CardsInvoiceClosing> CardsInvoiceClosings { get; set; } = null!;
+        public DbSet<AccountsPostingApplicationDetails> AccountsPostingApplicationDetails { get; set; } = null!;
     }
 }
