@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace BudgetAPI.Models;
 
 public class AccountsPostingApplicationDetails
@@ -13,6 +15,7 @@ public class AccountsPostingApplicationDetails
     public decimal? TotalIR { get; set; }
     public int? IOFElapsedDays { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.Now;
+    [JsonIgnore]
     public AccountsPostings? AccountPosting { get; set; }
     public AccountsApplications? AccountApplication { get; set; }
 }

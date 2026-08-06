@@ -24,6 +24,7 @@ namespace BudgetAPI.Services
         Task<decimal> GetPreviousYield(int accountId, string reference);
         Task<decimal> GetTotalPreviousYields(int accountId, string reference);
         Task<AccountHistoricalBalanceDTO> GetHistoricalBalance(int accountId, DateTime date, int? excludePostingId);
+        Task<AccountHistoricalBalanceDTO> GetHistoricalApplicationBalance(int accountApplicationId, DateTime date, int? excludePostingId);
     }
 
     public class AccountPostingService : IAccountPostingService
@@ -811,6 +812,55 @@ namespace BudgetAPI.Services
             return previousYield;
         }
 
+        public async Task<AccountHistoricalBalanceDTO> GetHistoricalApplicationBalance(int accountApplicationId, DateTime date, int? excludePostingId)
+        {
+            DateTime limitDate = date.Date;
+
+            AccountsApplications? application = await _context.AccountsApplications
+                .FirstOrDefaultAsync(item => item.Id == accountApplicationId);
+
+            if (application == null ||
+                !await _context.Accounts.AnyAsync(account =>
+                    account.Id == application.AccountId &&
+                    account.UserId == _user.Id))
+            {
+                throw new ArgumentException("Aplicação inválida para o usuário atual.");
+            }
+
+            IQueryable<AccountsPostingApplicationDetails> query = _context.AccountsPostingApplicationDetails
+                .AsNoTracking()
+                .Where(detail => detail.AccountApplicationId == accountApplicationId
+                              && detail.AccountPosting!.Account!.UserId == _user.Id
+                              && detail.AccountPosting.Type == "Y"
+                              && detail.AccountPosting.Date < limitDate);
+
+            if (excludePostingId.HasValue)
+            {
+                query = query.Where(detail => detail.AccountPostingId != excludePostingId.Value);
+            }
+
+            AccountsPostingApplicationDetails? detail = await query
+                .OrderByDescending(item => item.AccountPosting!.Date)
+                .ThenByDescending(item => item.AccountPosting!.Position)
+                .ThenByDescending(item => item.AccountPostingId)
+                .FirstOrDefaultAsync();
+
+            if (detail == null)
+            {
+                return new AccountHistoricalBalanceDTO
+                {
+                    Balance = application.AmountApplied,
+                    GrossBalance = application.AmountApplied
+                };
+            }
+
+            return new AccountHistoricalBalanceDTO
+            {
+                Balance = detail.TotalBalance ?? application.AmountApplied,
+                GrossBalance = detail.TotalGrossBalance ?? application.AmountApplied
+            };
+        }
+
         public async Task<AccountHistoricalBalanceDTO> GetHistoricalBalance(int accountId, DateTime date, int? excludePostingId)
         {
             DateTime limitDate = date.Date;
@@ -833,18 +883,39 @@ namespace BudgetAPI.Services
                 .ThenByDescending(ap => ap.Id)
                 .FirstOrDefaultAsync();
 
-            if (lastYield == null || !lastYield.TotalGrossBalance.HasValue)
+            if (lastYield == null)
             {
-                decimal fallbackBalance = await postingsBeforeDate.SumAsync(ap => ap.Amount);
-                decimal fallbackGrossBalance = await postingsBeforeDate.SumAsync(ap =>
-                    ap.Type == "Y" || ap.Type == "y"
-                        ? ap.GrossAmount ?? ap.Amount
-                        : ap.Amount);
-
                 return new AccountHistoricalBalanceDTO
                 {
-                    Balance      = fallbackBalance,
-                    GrossBalance = fallbackGrossBalance
+                    Balance = await postingsBeforeDate.SumAsync(ap => ap.Amount),
+                    GrossBalance = await postingsBeforeDate.SumAsync(ap =>
+                        ap.Type == "Y" || ap.Type == "y"
+                            ? ap.GrossAmount ?? ap.Amount
+                            : ap.Amount)
+                };
+            }
+
+            decimal? detailGrossBalance = await _context.AccountsPostingApplicationDetails
+                .Where(detail => detail.AccountPostingId == lastYield.Id)
+                .Select(detail => (decimal?)detail.TotalGrossBalance)
+                .SumAsync();
+
+            decimal? detailBalance = await _context.AccountsPostingApplicationDetails
+                .Where(detail => detail.AccountPostingId == lastYield.Id)
+                .Select(detail => (decimal?)detail.TotalBalance)
+                .SumAsync();
+
+            bool hasDetailGrossBalance = detailGrossBalance.HasValue && detailGrossBalance.Value > 0;
+
+            if (!hasDetailGrossBalance && !lastYield.TotalGrossBalance.HasValue)
+            {
+                return new AccountHistoricalBalanceDTO
+                {
+                    Balance = await postingsBeforeDate.SumAsync(ap => ap.Amount),
+                    GrossBalance = await postingsBeforeDate.SumAsync(ap =>
+                        ap.Type == "Y" || ap.Type == "y"
+                            ? ap.GrossAmount ?? ap.Amount
+                            : ap.Amount)
                 };
             }
 
@@ -860,14 +931,17 @@ namespace BudgetAPI.Services
                     ? ap.GrossAmount ?? ap.Amount
                     : ap.Amount);
 
-            decimal confirmedGrossBalance = lastYield.TotalGrossBalance.Value;
-            decimal confirmedBalance = confirmedGrossBalance
-                                     - (lastYield.TotalIOF ?? 0)
-                                     - (lastYield.TotalIR ?? 0);
+            decimal confirmedGrossBalance = hasDetailGrossBalance
+                ? detailGrossBalance!.Value
+                : lastYield.TotalGrossBalance!.Value;
+
+            decimal confirmedBalance = detailBalance.HasValue && detailBalance.Value > 0
+                ? detailBalance.Value
+                : confirmedGrossBalance - (lastYield.TotalIOF ?? 0) - (lastYield.TotalIR ?? 0);
 
             return new AccountHistoricalBalanceDTO
             {
-                Balance      = confirmedBalance + balanceAfterLastYield,
+                Balance = confirmedBalance + balanceAfterLastYield,
                 GrossBalance = confirmedGrossBalance + grossBalanceAfterLastYield
             };
         }

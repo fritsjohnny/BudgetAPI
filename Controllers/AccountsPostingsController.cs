@@ -253,6 +253,25 @@ namespace BudgetAPI.Controllers
             return Ok(id);
         }
 
+        [HttpGet("historicalapplicationbalance/{accountApplicationId:int}")]
+        public async Task<ActionResult<AccountHistoricalBalanceDTO>> GetHistoricalApplicationBalance(
+            int accountApplicationId,
+            [FromQuery] DateTime date,
+            [FromQuery] int? excludePostingId = null)
+        {
+            try
+            {
+                return Ok(await _accountPostingService.GetHistoricalApplicationBalance(
+                    accountApplicationId,
+                    date,
+                    excludePostingId));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
         [HttpGet("historicalbalance/{accountId:int}")]
         public async Task<ActionResult<AccountHistoricalBalanceDTO>> GetHistoricalBalance(
             int accountId,
