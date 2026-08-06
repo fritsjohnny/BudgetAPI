@@ -100,7 +100,11 @@ namespace BudgetAPI.Services
                 return;
 
             List<AccountsPostingApplicationDetails> requestDetails =
-                (posting.ApplicationDetails ?? new List<AccountsPostingApplicationDetails>()).ToList();
+                (posting.ApplicationDetails ?? new List<AccountsPostingApplicationDetails>())
+                    .Where(detail => detail.AccountApplicationId > 0)
+                    .GroupBy(detail => detail.AccountApplicationId)
+                    .Select(group => group.Last())
+                    .ToList();
 
             if (requestDetails.Count == 0)
             {
