@@ -95,92 +95,129 @@ namespace BudgetAPI.Services
             return (descOrigin, descDestination);
         }
 
-        private async Task ApplyYieldDetailsAsync(AccountsPostings posting, bool replaceDetails)
+        private async Task ApplyYieldDetailsAsync(
+            AccountsPostings posting,
+            bool replaceDetails,
+            IEnumerable<AccountsPostingApplicationDetails>? requestedDetails = null)
         {
             if (!string.Equals(posting.Type, "Y", StringComparison.OrdinalIgnoreCase))
                 return;
 
             List<AccountsPostingApplicationDetails> requestDetails =
-                (posting.ApplicationDetails ?? new List<AccountsPostingApplicationDetails>())
+                (requestedDetails ?? posting.ApplicationDetails ?? new List<AccountsPostingApplicationDetails>())
                     .Where(detail => detail.AccountApplicationId > 0)
                     .GroupBy(detail => detail.AccountApplicationId)
                     .Select(group => group.Last())
                     .ToList();
 
+            List<AccountsPostingApplicationDetails> existingDetails = await _context.AccountsPostingApplicationDetails
+                .Where(detail => detail.AccountPostingId == posting.Id)
+                .ToListAsync();
+
             if (requestDetails.Count == 0)
             {
                 if (replaceDetails)
                 {
-                    var oldDetails = await _context.AccountsPostingApplicationDetails
-                        .Where(x => x.AccountPostingId == posting.Id)
-                        .ToListAsync();
-                    _context.AccountsPostingApplicationDetails.RemoveRange(oldDetails);
+                    _context.AccountsPostingApplicationDetails.RemoveRange(existingDetails);
                 }
 
                 return;
             }
 
-            var ids = requestDetails.Select(x => x.AccountApplicationId).Distinct().ToList();
-            var valid = await _context.AccountsApplications
-                .Where(x => x.AccountId == posting.AccountId && !x.Disabled && ids.Contains(x.Id))
-                .Select(x => x.Id)
+            List<int> applicationIds = requestDetails
+                .Select(detail => detail.AccountApplicationId)
+                .Distinct()
+                .ToList();
+
+            List<int> validApplicationIds = await _context.AccountsApplications
+                .Where(application => application.AccountId == posting.AccountId
+                                   && !application.Disabled
+                                   && applicationIds.Contains(application.Id))
+                .Select(application => application.Id)
                 .ToListAsync();
 
-            if (valid.Count != ids.Count)
+            if (validApplicationIds.Count != applicationIds.Count)
                 throw new ArgumentException("Uma aplicação informada não pertence à conta ou está desabilitada.");
 
-            var details = requestDetails
-                .Select(x => new AccountsPostingApplicationDetails
+            List<AccountsPostingApplicationDetails> details = requestDetails
+                .Select(requestDetail => new AccountsPostingApplicationDetails
                 {
                     Id = 0,
                     AccountPostingId = posting.Id,
-                    AccountApplicationId = x.AccountApplicationId,
-                    Amount = x.Amount,
-                    GrossAmount = x.GrossAmount,
-                    TotalGrossBalance = x.TotalGrossBalance,
-                    TotalBalance = x.TotalBalance,
-                    TotalIOF = x.TotalIOF,
-                    TotalIR = x.TotalIR,
-                    IOFElapsedDays = x.IOFElapsedDays,
-                    CreatedAt = x.CreatedAt
+                    AccountApplicationId = requestDetail.AccountApplicationId,
+                    Amount = Math.Round(requestDetail.Amount, 2),
+                    GrossAmount = requestDetail.GrossAmount.HasValue ? Math.Round(requestDetail.GrossAmount.Value, 2) : null,
+                    TotalGrossBalance = requestDetail.TotalGrossBalance.HasValue ? Math.Round(requestDetail.TotalGrossBalance.Value, 2) : null,
+                    TotalBalance = requestDetail.TotalBalance.HasValue ? Math.Round(requestDetail.TotalBalance.Value, 2) : null,
+                    TotalIOF = requestDetail.TotalIOF.HasValue ? Math.Round(requestDetail.TotalIOF.Value, 2) : null,
+                    TotalIR = requestDetail.TotalIR.HasValue ? Math.Round(requestDetail.TotalIR.Value, 2) : null,
+                    IOFElapsedDays = requestDetail.IOFElapsedDays,
+                    CreatedAt = requestDetail.CreatedAt
                 })
                 .ToList();
 
-            foreach (var detail in details)
+            Dictionary<int, AccountsPostingApplicationDetails> detailsByApplication =
+                existingDetails.ToDictionary(detail => detail.AccountApplicationId);
+
+            foreach (Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<AccountsPostingApplicationDetails> trackedEntry in
+                     _context.ChangeTracker.Entries<AccountsPostingApplicationDetails>())
             {
-                detail.Amount = Math.Round(detail.Amount, 2);
-                if (detail.GrossAmount.HasValue) detail.GrossAmount = Math.Round(detail.GrossAmount.Value, 2);
-                if (detail.TotalGrossBalance.HasValue) detail.TotalGrossBalance = Math.Round(detail.TotalGrossBalance.Value, 2);
-                if (detail.TotalBalance.HasValue) detail.TotalBalance = Math.Round(detail.TotalBalance.Value, 2);
-                if (detail.TotalIOF.HasValue) detail.TotalIOF = Math.Round(detail.TotalIOF.Value, 2);
-                if (detail.TotalIR.HasValue) detail.TotalIR = Math.Round(detail.TotalIR.Value, 2);
+                AccountsPostingApplicationDetails trackedDetail = trackedEntry.Entity;
+
+                if (trackedDetail.AccountPostingId == posting.Id &&
+                    trackedEntry.State != EntityState.Deleted &&
+                    !detailsByApplication.ContainsKey(trackedDetail.AccountApplicationId))
+                {
+                    detailsByApplication[trackedDetail.AccountApplicationId] = trackedDetail;
+                }
             }
+
+            HashSet<int> requestedApplicationIds = details
+                .Select(detail => detail.AccountApplicationId)
+                .ToHashSet();
 
             if (replaceDetails)
             {
-                var oldDetails = await _context.AccountsPostingApplicationDetails
-                    .Where(x => x.AccountPostingId == posting.Id)
-                    .ToListAsync();
-                _context.AccountsPostingApplicationDetails.RemoveRange(oldDetails);
+                List<AccountsPostingApplicationDetails> detailsToRemove = existingDetails
+                    .Where(detail => !requestedApplicationIds.Contains(detail.AccountApplicationId))
+                    .ToList();
+
+                _context.AccountsPostingApplicationDetails.RemoveRange(detailsToRemove);
             }
 
-            foreach (var detail in details)
+            foreach (AccountsPostingApplicationDetails detail in details)
             {
-                _context.AccountsPostingApplicationDetails.Add(detail);
+                if (!detailsByApplication.TryGetValue(detail.AccountApplicationId, out AccountsPostingApplicationDetails? targetDetail))
+                {
+                    _context.AccountsPostingApplicationDetails.Add(detail);
+                    continue;
+                }
+
+                targetDetail.Amount = detail.Amount;
+                targetDetail.GrossAmount = detail.GrossAmount;
+                targetDetail.TotalGrossBalance = detail.TotalGrossBalance;
+                targetDetail.TotalBalance = detail.TotalBalance;
+                targetDetail.TotalIOF = detail.TotalIOF;
+                targetDetail.TotalIR = detail.TotalIR;
+                targetDetail.IOFElapsedDays = detail.IOFElapsedDays;
+
+                if (targetDetail.CreatedAt == default)
+                {
+                    targetDetail.CreatedAt = detail.CreatedAt;
+                }
             }
 
-            posting.Amount = details.Sum(x => x.Amount);
-            posting.GrossAmount = details.Sum(x => x.GrossAmount ?? 0m);
-            posting.TotalGrossBalance = details.Sum(x => x.TotalGrossBalance ?? 0m);
-            posting.TotalIOF = details.Sum(x => x.TotalIOF ?? 0m);
-            posting.TotalIR = details.Sum(x => x.TotalIR ?? 0m);
+            posting.Amount = details.Sum(detail => detail.Amount);
+            posting.GrossAmount = details.Sum(detail => detail.GrossAmount ?? 0m);
+            posting.TotalGrossBalance = details.Sum(detail => detail.TotalGrossBalance ?? 0m);
+            posting.TotalIOF = details.Sum(detail => detail.TotalIOF ?? 0m);
+            posting.TotalIR = details.Sum(detail => detail.TotalIR ?? 0m);
             posting.IOFElapsedDays = details
-                .Where(x => x.IOFElapsedDays.HasValue)
-                .Select(x => x.IOFElapsedDays!.Value)
+                .Where(detail => detail.IOFElapsedDays.HasValue)
+                .Select(detail => detail.IOFElapsedDays!.Value)
                 .DefaultIfEmpty()
                 .Max();
         }
-
         public async Task<int> PutAccountsPostings(AccountsPostings accountsPostings)
         {
             NormalizeYieldFields(accountsPostings);
@@ -210,8 +247,7 @@ namespace BudgetAPI.Services
             }
 
             _context.Entry(entity).CurrentValues.SetValues(accountsPostings);
-            entity.ApplicationDetails = accountsPostings.ApplicationDetails ?? new List<AccountsPostingApplicationDetails>();
-            await ApplyYieldDetailsAsync(entity, true);
+            await ApplyYieldDetailsAsync(entity, true, accountsPostings.ApplicationDetails);
 
             return await _context.SaveChangesAsync();
         }
