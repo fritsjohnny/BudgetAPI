@@ -868,7 +868,7 @@ namespace BudgetAPI.Services
                 .Where(detail => detail.AccountApplicationId == accountApplicationId
                               && detail.AccountPosting!.Account!.UserId == _user.Id
                               && detail.AccountPosting.Type == "Y"
-                              && detail.AccountPosting.Date < limitDate);
+                              && detail.AccountPosting.Date <= limitDate);
 
             if (excludePostingId.HasValue)
             {
