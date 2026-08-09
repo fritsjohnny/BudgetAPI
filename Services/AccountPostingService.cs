@@ -896,6 +896,7 @@ namespace BudgetAPI.Services
         public async Task<AccountHistoricalBalanceDTO> GetHistoricalApplicationBalance(int accountApplicationId, DateTime date, int? excludePostingId)
         {
             DateTime limitDate = date.Date;
+            DateTime nextDate = limitDate.AddDays(1);
 
             AccountsApplications? application = await _context.AccountsApplications
                 .FirstOrDefaultAsync(item => item.Id == accountApplicationId);
@@ -914,20 +915,20 @@ namespace BudgetAPI.Services
                 .Where(detail => detail.AccountApplicationId == accountApplicationId
                               && detail.AccountPosting!.Account!.UserId == _user.Id
                               && detail.AccountPosting.Type == "Y"
-                              && detail.AccountPosting.Date <= limitDate);
+                              && detail.AccountPosting.Date < nextDate);
 
             if (excludePostingId.HasValue)
             {
                 query = query.Where(detail => detail.AccountPostingId != excludePostingId.Value);
             }
 
-            AccountsPostingApplicationDetails? detail = await query
-                .OrderByDescending(item => item.AccountPosting!.Date)
-                .ThenByDescending(item => item.AccountPosting!.Position)
-                .ThenByDescending(item => item.AccountPostingId)
-                .FirstOrDefaultAsync();
+            List<AccountsPostingApplicationDetails> details = await query
+                .OrderBy(detail => detail.AccountPosting!.Date)
+                .ThenBy(detail => detail.AccountPosting!.Position)
+                .ThenBy(detail => detail.AccountPostingId)
+                .ToListAsync();
 
-            if (detail == null)
+            if (details.Count == 0)
             {
                 return new AccountHistoricalBalanceDTO
                 {
@@ -936,13 +937,48 @@ namespace BudgetAPI.Services
                 };
             }
 
+            AccountsPostingApplicationDetails firstDetail = details[0];
+            decimal reconstructedGrossBalance = firstDetail.TotalGrossBalance
+                ?? Math.Round(application.AmountApplied + (firstDetail.GrossAmount ?? 0), 2);
+
+            for (int index = 1; index < details.Count; index++)
+            {
+                AccountsPostingApplicationDetails currentDetail = details[index];
+
+                if (currentDetail.GrossAmount.HasValue)
+                {
+                    reconstructedGrossBalance = Math.Round(reconstructedGrossBalance + currentDetail.GrossAmount.Value, 2);
+                }
+                else if (currentDetail.TotalGrossBalance.HasValue)
+                {
+                    reconstructedGrossBalance = currentDetail.TotalGrossBalance.Value;
+                }
+            }
+
+            AccountsPostingApplicationDetails detail = details[^1];
+
+            decimal reconstructedBalance;
+            if (detail.TotalIOF.HasValue && detail.TotalIR.HasValue)
+            {
+                reconstructedBalance = Math.Round(
+                    reconstructedGrossBalance - detail.TotalIOF.Value - detail.TotalIR.Value,
+                    2);
+            }
+            else if (detail.TotalBalance.HasValue && detail.TotalGrossBalance.HasValue)
+            {
+                reconstructedBalance = Math.Round(
+                    detail.TotalBalance.Value + reconstructedGrossBalance - detail.TotalGrossBalance.Value,
+                    2);
+            }
+            else
+            {
+                reconstructedBalance = detail.TotalBalance ?? reconstructedGrossBalance;
+            }
+
             return new AccountHistoricalBalanceDTO
             {
-                Balance = detail.TotalBalance
-                    ?? (detail.TotalGrossBalance.HasValue
-                        ? detail.TotalGrossBalance.Value - (detail.TotalIOF ?? 0) - (detail.TotalIR ?? 0)
-                        : application.AmountApplied),
-                GrossBalance = detail.TotalGrossBalance ?? application.AmountApplied,
+                Balance = reconstructedBalance,
+                GrossBalance = reconstructedGrossBalance,
                 TotalIOF = detail.TotalIOF,
                 TotalIR = detail.TotalIR,
                 IOFElapsedDays = detail.IOFElapsedDays,
