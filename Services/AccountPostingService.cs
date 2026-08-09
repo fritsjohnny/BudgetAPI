@@ -910,6 +910,7 @@ namespace BudgetAPI.Services
 
             IQueryable<AccountsPostingApplicationDetails> query = _context.AccountsPostingApplicationDetails
                 .AsNoTracking()
+                .Include(detail => detail.AccountPosting)
                 .Where(detail => detail.AccountApplicationId == accountApplicationId
                               && detail.AccountPosting!.Account!.UserId == _user.Id
                               && detail.AccountPosting.Type == "Y"
@@ -941,7 +942,11 @@ namespace BudgetAPI.Services
                     ?? (detail.TotalGrossBalance.HasValue
                         ? detail.TotalGrossBalance.Value - (detail.TotalIOF ?? 0) - (detail.TotalIR ?? 0)
                         : application.AmountApplied),
-                GrossBalance = detail.TotalGrossBalance ?? application.AmountApplied
+                GrossBalance = detail.TotalGrossBalance ?? application.AmountApplied,
+                TotalIOF = detail.TotalIOF,
+                TotalIR = detail.TotalIR,
+                IOFElapsedDays = detail.IOFElapsedDays,
+                PostingDate = detail.AccountPosting?.Date
             };
         }
 
