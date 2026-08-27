@@ -8,7 +8,7 @@ namespace BudgetAPI.Services
     {
         IQueryable<Accounts> GetAccount();
         IQueryable<Accounts> GetAccount(int id);
-        IQueryable<AccountsDTO> GetAccountTotals(int account, string reference);
+        Task<AccountsDTO> GetAccountTotals(int account, string reference);
         IQueryable<AccountsSummary> GetAccountsSummary(string reference);
         IQueryable<AccountsSummaryTotals> GetAccountsSummaryTotals(string reference);
         Task<AccountForecastBalanceReportDTO> GetForecastBalanceReport(int accountId, DateTime initialDate, DateTime finalDate);
@@ -39,18 +39,55 @@ namespace BudgetAPI.Services
             return query;
         }
 
-        public IQueryable<AccountsDTO> GetAccountTotals(int accountId, string reference)
+        public async Task<AccountsDTO> GetAccountTotals(int accountId, string reference)
         {
-            IQueryable<AccountsDTO> accountDto = Enumerable.Empty<AccountsDTO>().AsQueryable();
+            AccountsDTO? accountDto;
 
             try
             {
-                accountDto = _context.GetAccountTotals(accountId, reference, _user.Id);
+                accountDto = await _context.GetAccountTotals(accountId, reference, _user.Id).FirstOrDefaultAsync();
             }
             catch
             {
-                /**/
+                accountDto = null;
             }
+
+            if (accountDto == null)
+            {
+                return new AccountsDTO();
+            }
+
+            List<AccountBalancePosting> postings = await _context.AccountsPostings
+                .AsNoTracking()
+                .Where(ap => ap.Account!.UserId == _user.Id)
+                .Select(ap => new AccountBalancePosting
+                {
+                    Id = ap.Id,
+                    AccountId = ap.AccountId,
+                    Date = ap.Date,
+                    Reference = ap.Reference!,
+                    Position = ap.Position,
+                    Type = ap.Type,
+                    Amount = ap.Amount,
+                    TotalBalance = ap.TotalBalance
+                })
+                .ToListAsync();
+
+            accountDto.PreviousBalance = CalculateAnchoredBalance(
+                postings.Where(posting =>
+                    posting.AccountId == accountId &&
+                    string.CompareOrdinal(posting.Reference, reference) < 0));
+
+            accountDto.TotalBalance = CalculateAnchoredBalance(
+                postings.Where(posting =>
+                    posting.AccountId == accountId &&
+                    string.CompareOrdinal(posting.Reference, reference) <= 0));
+
+            accountDto.CurrentBalance = CalculateAnchoredBalance(
+                postings.Where(posting => posting.AccountId == accountId));
+
+            accountDto.GrandTotalBalance = CalculateAnchoredBalance(
+                postings.Where(posting => string.CompareOrdinal(posting.Reference, reference) <= 0));
 
             return accountDto;
         }
@@ -258,6 +295,47 @@ namespace BudgetAPI.Services
                 .ThenBy(a => a.Name);
 
             return accounts;
+        }
+
+        private static decimal CalculateAnchoredBalance(IEnumerable<AccountBalancePosting> postings)
+        {
+            decimal total = 0;
+
+            foreach (IGrouping<int, AccountBalancePosting> accountPostings in postings.GroupBy(posting => posting.AccountId))
+            {
+                decimal balance = 0;
+
+                foreach (AccountBalancePosting posting in accountPostings
+                    .OrderBy(posting => posting.Date)
+                    .ThenBy(posting => posting.Position ?? short.MaxValue)
+                    .ThenBy(posting => posting.Id))
+                {
+                    if (string.Equals(posting.Type, "Y", StringComparison.OrdinalIgnoreCase) && posting.TotalBalance.HasValue)
+                    {
+                        balance = posting.TotalBalance.Value;
+                    }
+                    else
+                    {
+                        balance += posting.Amount;
+                    }
+                }
+
+                total += balance;
+            }
+
+            return Math.Round(total, 2);
+        }
+
+        private sealed class AccountBalancePosting
+        {
+            public int Id { get; set; }
+            public int AccountId { get; set; }
+            public DateTime Date { get; set; }
+            public string Reference { get; set; } = string.Empty;
+            public short? Position { get; set; }
+            public string? Type { get; set; }
+            public decimal Amount { get; set; }
+            public decimal? TotalBalance { get; set; }
         }
 
         private sealed class AccountForecastMovement

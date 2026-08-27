@@ -31,7 +31,7 @@ namespace BudgetAPI.Controllers
         [HttpGet("Totals")]
         public async Task<ActionResult<AccountsDTO>> GetAccountTotals(int account, string reference)
         {
-            return await _accountService.GetAccountTotals(account, reference).FirstOrDefaultAsync() ?? new AccountsDTO();
+            return await _accountService.GetAccountTotals(account, reference);
         }
 
         [HttpGet("AccountsSummary")]
