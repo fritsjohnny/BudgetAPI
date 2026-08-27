@@ -958,16 +958,16 @@ namespace BudgetAPI.Services
             AccountsPostingApplicationDetails detail = details[^1];
 
             decimal reconstructedBalance;
-            if (detail.TotalIOF.HasValue && detail.TotalIR.HasValue)
-            {
-                reconstructedBalance = Math.Round(
-                    reconstructedGrossBalance - detail.TotalIOF.Value - detail.TotalIR.Value,
-                    2);
-            }
-            else if (detail.TotalBalance.HasValue && detail.TotalGrossBalance.HasValue)
+            if (detail.TotalBalance.HasValue && detail.TotalGrossBalance.HasValue)
             {
                 reconstructedBalance = Math.Round(
                     detail.TotalBalance.Value + reconstructedGrossBalance - detail.TotalGrossBalance.Value,
+                    2);
+            }
+            else if (detail.TotalIOF.HasValue && detail.TotalIR.HasValue)
+            {
+                reconstructedBalance = Math.Round(
+                    reconstructedGrossBalance - detail.TotalIOF.Value - detail.TotalIR.Value,
                     2);
             }
             else
