@@ -55,7 +55,8 @@ namespace BudgetAPI.Services
                     {
                         Notification = new AndroidNotification
                         {
-                            Tag = tag
+                            Tag = tag,
+                            EventTimestamp = DateTime.UtcNow
                         }
                     }
                 };
