@@ -2,7 +2,7 @@
 {
 	public class CardsPostingsPeople
 	{
-		public string Reference { get; set; }
+		public string Reference { get; set; } = null!;
 		public int CardId { get; set; }
 		public int? PeopleId { get; set; }
 		public string? Person { get; set; }

@@ -57,16 +57,22 @@ namespace BudgetAPI.Data
                 entity.HasOne(x => x.AccountApplication).WithMany().HasForeignKey(x => x.AccountApplicationId).OnDelete(DeleteBehavior.NoAction);
             });
 
-            modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetAccountTotals), new[] { typeof(int), typeof(string), typeof(int) }));
-            modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetAccountsSummary), new[] { typeof(string), typeof(int) }));
-            modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetTotalsAccountsSummary), new[] { typeof(string), typeof(int) }));
-            modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetCardsPostingsPeople), new[] { typeof(int), typeof(string), typeof(int) }));
-            modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetBudgetTotals), new[] { typeof(string), typeof(int) }));
-            modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetExpensesByCategories), new[] { typeof(string), typeof(int), typeof(int) }));
-            modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetMyExpenses), new[] { typeof(string), typeof(int) }));
-            modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetAccountsYields), new[] { typeof(string), typeof(int?), typeof(int) }));
-            modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetAnnualSavings), new[] { typeof(int), typeof(int), typeof(bool), typeof(bool) }));
-            modelBuilder.HasDbFunction(typeof(BudgetContext).GetMethod(nameof(GetAnnualSavingsConsolidated), new[] { typeof(int), typeof(bool), typeof(bool), typeof(bool), typeof(bool) }));
+            modelBuilder.HasDbFunction(GetDbFunctionMethod(nameof(GetAccountTotals), typeof(int), typeof(string), typeof(int)));
+            modelBuilder.HasDbFunction(GetDbFunctionMethod(nameof(GetAccountsSummary), typeof(string), typeof(int)));
+            modelBuilder.HasDbFunction(GetDbFunctionMethod(nameof(GetTotalsAccountsSummary), typeof(string), typeof(int)));
+            modelBuilder.HasDbFunction(GetDbFunctionMethod(nameof(GetCardsPostingsPeople), typeof(int), typeof(string), typeof(int)));
+            modelBuilder.HasDbFunction(GetDbFunctionMethod(nameof(GetBudgetTotals), typeof(string), typeof(int)));
+            modelBuilder.HasDbFunction(GetDbFunctionMethod(nameof(GetExpensesByCategories), typeof(string), typeof(int), typeof(int)));
+            modelBuilder.HasDbFunction(GetDbFunctionMethod(nameof(GetMyExpenses), typeof(string), typeof(int)));
+            modelBuilder.HasDbFunction(GetDbFunctionMethod(nameof(GetAccountsYields), typeof(string), typeof(int?), typeof(int)));
+            modelBuilder.HasDbFunction(GetDbFunctionMethod(nameof(GetAnnualSavings), typeof(int), typeof(int), typeof(bool), typeof(bool)));
+            modelBuilder.HasDbFunction(GetDbFunctionMethod(nameof(GetAnnualSavingsConsolidated), typeof(int), typeof(bool), typeof(bool), typeof(bool), typeof(bool)));
+        }
+
+        private static System.Reflection.MethodInfo GetDbFunctionMethod(string methodName, params Type[] parameterTypes)
+        {
+            return typeof(BudgetContext).GetMethod(methodName, parameterTypes)
+                ?? throw new InvalidOperationException($"Método de DbFunction não encontrado: {methodName}.");
         }
 
         public IQueryable<AccountsDTO> GetAccountTotals(int accountId, string reference, int userId) => FromExpression(() => GetAccountTotals(accountId, reference, userId));
@@ -80,18 +86,18 @@ namespace BudgetAPI.Data
         public IQueryable<AnnualSavingsMonthProjectionDTO> GetAnnualSavings(int year, int userId, bool includeCurrentMonth, bool includeNextMonths) => FromExpression(() => GetAnnualSavings(year, userId, includeCurrentMonth, includeNextMonths));
         public IQueryable<AnnualSavingsConsolidatedDTO> GetAnnualSavingsConsolidated(int userId, bool includeCurrentYear, bool includeNextYears, bool includeCurrentMonth, bool includeNextMonths) => FromExpression(() => GetAnnualSavingsConsolidated(userId, includeCurrentYear, includeNextYears, includeCurrentMonth, includeNextMonths));
 
-        public DbSet<Accounts> Accounts { get; set; }
-        public DbSet<Cards> Cards { get; set; }
-        public DbSet<Users> Users { get; set; }
-        public DbSet<AccountsPostings> AccountsPostings { get; set; }
-        public DbSet<CardsPostings> CardsPostings { get; set; }
-        public DbSet<Expenses> Expenses { get; set; }
-        public DbSet<Incomes> Incomes { get; set; }
-        public DbSet<People> People { get; set; }
-        public DbSet<CardsReceipts> CardsReceipts { get; set; }
-        public DbSet<Categories> Categories { get; set; }
-        public DbSet<AccountsApplications> AccountsApplications { get; set; }
-        public DbSet<AccountYieldRanges> AccountYieldRanges { get; set; }
+        public DbSet<Accounts> Accounts { get; set; } = null!;
+        public DbSet<Cards> Cards { get; set; } = null!;
+        public DbSet<Users> Users { get; set; } = null!;
+        public DbSet<AccountsPostings> AccountsPostings { get; set; } = null!;
+        public DbSet<CardsPostings> CardsPostings { get; set; } = null!;
+        public DbSet<Expenses> Expenses { get; set; } = null!;
+        public DbSet<Incomes> Incomes { get; set; } = null!;
+        public DbSet<People> People { get; set; } = null!;
+        public DbSet<CardsReceipts> CardsReceipts { get; set; } = null!;
+        public DbSet<Categories> Categories { get; set; } = null!;
+        public DbSet<AccountsApplications> AccountsApplications { get; set; } = null!;
+        public DbSet<AccountYieldRanges> AccountYieldRanges { get; set; } = null!;
         public DbSet<CardsInvoiceClosing> CardsInvoiceClosings { get; set; } = null!;
         public DbSet<AccountsPostingApplicationDetails> AccountsPostingApplicationDetails { get; set; } = null!;
     }

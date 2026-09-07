@@ -6,7 +6,7 @@ namespace BudgetAPI.Models
 	public class AccountsSummary
 	{
 		public int Position { get; set; }
-		public string Description { get; set; }
+		public string Description { get; set; } = null!;
 		public decimal ForecastBalance { get; set; }
 		public decimal AvailableBalance { get; set; }
 	}
