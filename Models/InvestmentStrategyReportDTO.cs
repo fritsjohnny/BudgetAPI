@@ -6,6 +6,22 @@ public class InvestmentStrategyRequestDTO
     public DateTime FinalDate { get; set; }
     public int AccountId { get; set; }
     public decimal? OperationalReserve { get; set; }
+    public InvestmentTargetConfigurationDTO? TargetConfiguration { get; set; }
+}
+
+public class InvestmentTargetConfigurationDTO
+{
+    public int AccountId { get; set; }
+    public string YieldIndex { get; set; } = "CDI";
+    public decimal YieldPercent { get; set; }
+    public DateTime? MaturityDate { get; set; }
+    public decimal? MinimumAmount { get; set; }
+    public decimal? MaximumAmount { get; set; }
+    public decimal? AvailableAmount { get; set; }
+    public bool LockedUntilMaturity { get; set; }
+    public string PostMaturityYieldIndex { get; set; } = "CDI";
+    public decimal? PostMaturityYieldPercent { get; set; }
+    public bool PostMaturityRestartsTaxClock { get; set; } = true;
 }
 
 public class InvestmentStrategyReportDTO
@@ -27,7 +43,13 @@ public class InvestmentStrategyReportDTO
     public DateTime? CriticalDate { get; set; }
     public decimal SafeSurplus { get; set; }
     public decimal RecommendedInvestment { get; set; }
+    public decimal MainAccountOutflow { get; set; }
+    public decimal MainAccountInflow { get; set; }
+    public decimal OtherAccountsRecommendedInvestment { get; set; }
     public decimal KeptInMainAccount { get; set; }
+    public DateTime ProjectionDate { get; set; }
+    public decimal? CdiDailyPercentUsed { get; set; }
+    public int ProjectionBusinessDays { get; set; }
     public decimal Reserve { get; set; }
     public string Classification { get; set; } = string.Empty;
     public List<InvestmentTimelineRowDTO> Timeline { get; set; } = new();
@@ -50,6 +72,17 @@ public class InvestmentTimelineRowDTO
 
 public class InvestmentRecommendationDTO
 {
+    public int SourceAccountId { get; set; }
+    public int? SourceApplicationId { get; set; }
+    public string SourceAccountName { get; set; } = string.Empty;
+    public DateTime? SourceDateApplied { get; set; }
+    public int? SourceAgeDays { get; set; }
+    public decimal SourceIrPercent { get; set; }
+    public decimal SourceIofPercent { get; set; }
+    public decimal SourceEstimatedTaxCost { get; set; }
+    public decimal SourceBalanceBefore { get; set; }
+    public decimal SourceBalanceAfter { get; set; }
+    public bool IsMainAccountSource { get; set; }
     public int AccountId { get; set; }
     public int? ApplicationId { get; set; }
     public string AccountName { get; set; } = string.Empty;
@@ -81,6 +114,13 @@ public class InvestmentRecommendationDTO
     public string SourceYieldIndex { get; set; } = string.Empty;
     public bool IsDestinationTaxExempt { get; set; }
     public decimal DestinationIrPercent { get; set; }
+    public DateTime EvaluationDate { get; set; }
+    public decimal ProjectedKeepValue { get; set; }
+    public decimal ProjectedTransferValue { get; set; }
+    public decimal ProjectedFutureGain { get; set; }
+    public decimal ProjectedFutureGainPercent { get; set; }
+    public decimal SourceIrPercentAtEvaluation { get; set; }
+    public decimal DestinationIrPercentAtEvaluation { get; set; }
     public string CapacityBasis { get; set; } = string.Empty;
     public string Reason { get; set; } = string.Empty;
 }

@@ -27,6 +27,7 @@ builder.Services.AddSwaggerGen(config =>
     });
 });
 builder.Services.AddCors();
+builder.Services.AddHttpClient();
 // Configure strongly typed settings object
 builder.Services.Configure<AppSettings>(builder.Configuration.GetSection("AppSettings"));
 // Configure DI for application services
