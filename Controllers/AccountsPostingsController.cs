@@ -96,6 +96,10 @@ namespace BudgetAPI.Controllers
             {
                 await _accountPostingService.PutAccountsPostings(accountsPostings);
             }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
+            }
             catch (DbUpdateConcurrencyException dex)
             {
                 if (!_accountPostingService.AccountsPostingsExists(id))
@@ -141,6 +145,10 @@ namespace BudgetAPI.Controllers
             {
                 await _accountPostingService.PostAccountsPostings(accountsPostings);
                 return CreatedAtAction("GetAccountsPostings", new { id = accountsPostings.Id }, accountsPostings);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
             }
             catch (Exception ex)
             {

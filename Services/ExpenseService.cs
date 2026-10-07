@@ -48,7 +48,7 @@ namespace BudgetAPI.Services
 
         public IQueryable<Expenses> GetExpenses()
         {
-            return _context.Expenses.OrderBy(e => e.Position);
+            return _context.Expenses.Where(e => e.UserId == _user.Id).OrderBy(e => e.Position);
         }
 
         public IQueryable<Expenses> GetExpenses(int id)
@@ -584,7 +584,7 @@ namespace BudgetAPI.Services
         public async Task<int> DeleteExpenses(Expenses expense)
         {
             // Find all the Expenses with the RelatedId equal to the Id of the expense to be deleted
-            var relatedExpenses = _context.Expenses.Where(e => e.RelatedId == expense.Id);
+            var relatedExpenses = _context.Expenses.Where(e => e.RelatedId == expense.Id && e.UserId == _user.Id);
 
             // Remove all found Expenses
             if (relatedExpenses.Any())
@@ -1013,7 +1013,8 @@ namespace BudgetAPI.Services
                                                                      .FirstOrDefaultAsync(r => r.Category!.TrimEnd() == expense.Description!.TrimEnd());
 
             // Recebimentos relacionados à despesa, sem categoria
-            decimal received = await _context.AccountsPostings.Where(ap => ap.ExpenseId == expense.Id)
+            decimal received = await _context.AccountsPostings
+                                                              .Where(ap => ap.ExpenseId == expense.Id && ap.Account!.UserId == _user.Id)
                                                               .SumAsync(ap => ap.Amount);
 
             decimal paid       = Math.Abs(received);

@@ -89,6 +89,166 @@ namespace BudgetAPI.Services
             posting.IOFElapsedDays    = null;
         }
 
+        private async Task ValidatePostingReferencesAsync(AccountsPostings posting)
+        {
+            if (posting.ExpenseId.HasValue && !await _context.Expenses
+                .AnyAsync(expense => expense.Id == posting.ExpenseId.Value && expense.UserId == _user.Id))
+            {
+                throw new ArgumentException("A despesa informada não pertence ao usuário atual.");
+            }
+
+            if (posting.IncomeId.HasValue && !await _context.Incomes
+                .AnyAsync(income => income.Id == posting.IncomeId.Value && income.UserId == _user.Id))
+            {
+                throw new ArgumentException("A receita informada não pertence ao usuário atual.");
+            }
+        }
+
+        private static AccountsPostings CaptureYieldPayload(AccountsPostings posting)
+        {
+            return new AccountsPostings
+            {
+                Id = posting.Id,
+                AccountId = posting.AccountId,
+                Date = posting.Date,
+                Position = posting.Position,
+                Reference = posting.Reference,
+                Description = posting.Description,
+                Amount = posting.Amount,
+                TotalBalance = posting.TotalBalance,
+                GrossAmount = posting.GrossAmount,
+                TotalGrossBalance = posting.TotalGrossBalance,
+                TotalIOF = posting.TotalIOF,
+                TotalIR = posting.TotalIR,
+                IOFElapsedDays = posting.IOFElapsedDays,
+                ApplicationDetails = (posting.ApplicationDetails ?? new List<AccountsPostingApplicationDetails>())
+                    .Select(detail => new AccountsPostingApplicationDetails
+                    {
+                        AccountApplicationId = detail.AccountApplicationId,
+                        Amount = detail.Amount,
+                        GrossAmount = detail.GrossAmount,
+                        TotalGrossBalance = detail.TotalGrossBalance,
+                        TotalBalance = detail.TotalBalance,
+                        TotalIOF = detail.TotalIOF,
+                        TotalIR = detail.TotalIR,
+                        IOFElapsedDays = detail.IOFElapsedDays
+                    })
+                    .ToList()
+            };
+        }
+
+        private static string FormatValidationValue(decimal? value) =>
+            value.HasValue ? value.Value.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) : "null";
+
+        private static void AddYieldValueMismatch<T>(string field, T sent, T prepared, List<string> mismatches)
+            where T : struct
+        {
+            if (!EqualityComparer<T>.Default.Equals(sent, prepared))
+            {
+                mismatches.Add(field);
+            }
+        }
+
+        private static void AddYieldValueMismatch(string field, decimal sent, decimal prepared, List<string> mismatches)
+        {
+            if (sent != prepared)
+            {
+                mismatches.Add($"{field} (front={FormatValidationValue(sent)}, backend={FormatValidationValue(prepared)})");
+            }
+        }
+
+        private static void AddYieldValueMismatch(string field, decimal? sent, decimal? prepared, List<string> mismatches)
+        {
+            if (sent != prepared)
+            {
+                mismatches.Add($"{field} (front={FormatValidationValue(sent)}, backend={FormatValidationValue(prepared)})");
+            }
+        }
+
+        private static void ValidateYieldPayloadUnchanged(
+            AccountsPostings submitted,
+            AccountsPostings prepared,
+            IReadOnlyCollection<AccountsPostingApplicationDetails> preparedDetails)
+        {
+            if (!string.Equals(prepared.Type, "Y", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            List<string> mismatches = new();
+            AddYieldValueMismatch("Amount", submitted.Amount, prepared.Amount, mismatches);
+            AddYieldValueMismatch("GrossAmount", submitted.GrossAmount, prepared.GrossAmount, mismatches);
+            AddYieldValueMismatch("TotalGrossBalance", submitted.TotalGrossBalance, prepared.TotalGrossBalance, mismatches);
+            AddYieldValueMismatch("TotalBalance", submitted.TotalBalance, prepared.TotalBalance, mismatches);
+            AddYieldValueMismatch("TotalIOF", submitted.TotalIOF, prepared.TotalIOF, mismatches);
+            AddYieldValueMismatch("TotalIR", submitted.TotalIR, prepared.TotalIR, mismatches);
+            AddYieldValueMismatch("IOFElapsedDays", submitted.IOFElapsedDays, prepared.IOFElapsedDays, mismatches);
+
+            Dictionary<int, AccountsPostingApplicationDetails> preparedByApplication = preparedDetails
+                .ToDictionary(detail => detail.AccountApplicationId);
+
+            foreach (AccountsPostingApplicationDetails submittedDetail in submitted.ApplicationDetails)
+            {
+                if (!preparedByApplication.TryGetValue(submittedDetail.AccountApplicationId, out AccountsPostingApplicationDetails? preparedDetail))
+                {
+                    mismatches.Add($"ApplicationDetails[{submittedDetail.AccountApplicationId}]");
+                    continue;
+                }
+
+                string prefix = $"ApplicationDetails[{submittedDetail.AccountApplicationId}]";
+                AddYieldValueMismatch($"{prefix}.Amount", submittedDetail.Amount, preparedDetail.Amount, mismatches);
+                AddYieldValueMismatch($"{prefix}.GrossAmount", submittedDetail.GrossAmount, preparedDetail.GrossAmount, mismatches);
+                AddYieldValueMismatch($"{prefix}.TotalGrossBalance", submittedDetail.TotalGrossBalance, preparedDetail.TotalGrossBalance, mismatches);
+                AddYieldValueMismatch($"{prefix}.TotalBalance", submittedDetail.TotalBalance, preparedDetail.TotalBalance, mismatches);
+                AddYieldValueMismatch($"{prefix}.TotalIOF", submittedDetail.TotalIOF, preparedDetail.TotalIOF, mismatches);
+                AddYieldValueMismatch($"{prefix}.TotalIR", submittedDetail.TotalIR, preparedDetail.TotalIR, mismatches);
+                AddYieldValueMismatch($"{prefix}.IOFElapsedDays", submittedDetail.IOFElapsedDays, preparedDetail.IOFElapsedDays, mismatches);
+            }
+
+            if (submitted.ApplicationDetails.Count != preparedDetails.Count)
+            {
+                mismatches.Add("quantidade de ApplicationDetails");
+            }
+
+            if (mismatches.Count > 0)
+            {
+                throw new ArgumentException(
+                    "O backend alteraria valores do rendimento enviados pelo front-end. " +
+                    "O lançamento não foi salvo. Campos divergentes: " + string.Join(", ", mismatches) + ".");
+            }
+        }
+
+        private async Task ValidateYieldBalanceInvariantAsync(AccountsPostings posting, int? excludePostingId)
+        {
+            if (!string.Equals(posting.Type, "Y", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            if (!posting.TotalBalance.HasValue)
+            {
+                throw new ArgumentException("O saldo líquido total é obrigatório para validar o lançamento de rendimento.");
+            }
+
+            AccountHistoricalBalanceDTO previousBalance = await GetHistoricalBalance(
+                posting.AccountId,
+                posting.Date,
+                excludePostingId);
+
+            decimal expectedTotalBalance = Math.Round(previousBalance.Balance + posting.Amount, 2, MidpointRounding.AwayFromZero);
+            decimal submittedTotalBalance = Math.Round(posting.TotalBalance.Value, 2, MidpointRounding.AwayFromZero);
+
+            if (submittedTotalBalance != expectedTotalBalance)
+            {
+                throw new ArgumentException(
+                    "O saldo líquido total enviado não confere: saldo anterior (" +
+                    FormatValidationValue(previousBalance.Balance) + ") + rendimento (" +
+                    FormatValidationValue(posting.Amount) + ") deveria resultar em (" +
+                    FormatValidationValue(expectedTotalBalance) + "), mas o front-end enviou (" +
+                    FormatValidationValue(posting.TotalBalance) + "). O lançamento não foi salvo.");
+            }
+        }
+
         private async Task<List<AccountsPostingApplicationDetails>> PrepareYieldApplicationDetailsAsync(AccountsPostings posting)
         {
             if (!string.Equals(posting.Type, "Y", StringComparison.OrdinalIgnoreCase))
@@ -128,7 +288,10 @@ namespace BudgetAPI.Services
 
             List<int> applicationIds = requestDetails.Select(detail => detail.AccountApplicationId).ToList();
             List<AccountsApplications> applications = await _context.AccountsApplications
-                .Where(application => application.AccountId == posting.AccountId && applicationIds.Contains(application.Id))
+                .Where(application => application.AccountId == posting.AccountId
+                                   && applicationIds.Contains(application.Id)
+                                   && _context.Accounts.Any(account => account.Id == application.AccountId
+                                                                    && account.UserId == _user.Id))
                 .ToListAsync();
 
             if (applications.Count != applicationIds.Count)
@@ -180,15 +343,11 @@ namespace BudgetAPI.Services
                 posting.TotalBalance = Math.Round(posting.TotalGrossBalance.Value - (posting.TotalIOF ?? 0) - (posting.TotalIR ?? 0), 2);
             }
 
-            List<int> elapsedDays = requestDetails
-                .Where(detail => detail.IOFElapsedDays.HasValue)
-                .Select(detail => detail.IOFElapsedDays!.Value)
-                .ToList();
-
-            if (elapsedDays.Count > 0)
-            {
-                posting.IOFElapsedDays = elapsedDays.Max();
-            }
+            // Não existe um único IOFElapsedDays representativo de várias aplicações.
+            // Os dias de cada aplicação são persistidos individualmente nos detalhes.
+            posting.IOFElapsedDays = requestDetails.Count > 1
+                ? null
+                : requestDetails.FirstOrDefault()?.IOFElapsedDays;
 
             return requestDetails;
         }
@@ -276,6 +435,8 @@ namespace BudgetAPI.Services
             if (entity == null)
                 throw new Exception("Lançamento não encontrado.");
 
+            await ValidatePostingReferencesAsync(accountsPostings);
+
             // Se trocou a conta, exige que a nova conta pertença ao usuário e esteja ativa
             if (entity.AccountId != accountsPostings.AccountId)
             {
@@ -288,6 +449,7 @@ namespace BudgetAPI.Services
                     throw new InvalidOperationException($"Não é permitido alterar o lançamento para a conta desativada '{newAccount.Name}'.");
             }
 
+            AccountsPostings submittedYield = CaptureYieldPayload(accountsPostings);
             List<AccountsPostingApplicationDetails> applicationDetails = await PrepareYieldApplicationDetailsAsync(accountsPostings);
 
             _context.Entry(entity).CurrentValues.SetValues(accountsPostings);
@@ -295,6 +457,12 @@ namespace BudgetAPI.Services
             if (applicationDetails.Count > 0 && string.Equals(entity.Type, "Y", StringComparison.OrdinalIgnoreCase))
             {
                 _context.Entry(entity).Property(posting => posting.TotalBalance).IsModified = true;
+            }
+
+            if (string.Equals(accountsPostings.Type, "Y", StringComparison.OrdinalIgnoreCase))
+            {
+                ValidateYieldPayloadUnchanged(submittedYield, accountsPostings, applicationDetails);
+                await ValidateYieldBalanceInvariantAsync(accountsPostings, accountsPostings.Id);
             }
 
             return await SaveChangesWithYieldTriggerAsync(entity, applicationDetails);
@@ -483,8 +651,15 @@ namespace BudgetAPI.Services
             if (acc.Disabled == true)
                 throw new InvalidOperationException($"Não é permitido incluir registros na conta desativada '{acc.Name}'.");
 
-            accountsPostings.Position = (short)((_context.AccountsPostings.Where(o => o.Reference == accountsPostings.Reference).Max(o => o.Position) ?? 0) + 1);
+            await ValidatePostingReferencesAsync(accountsPostings);
 
+            accountsPostings.Position = (short)((_context.AccountsPostings
+                .Where(o => o.AccountId == accountsPostings.AccountId
+                         && o.Reference == accountsPostings.Reference
+                         && o.Account!.UserId == _user.Id)
+                .Max(o => o.Position) ?? 0) + 1);
+
+            AccountsPostings submittedYield = CaptureYieldPayload(accountsPostings);
             List<AccountsPostingApplicationDetails> applicationDetails = await PrepareYieldApplicationDetailsAsync(accountsPostings);
 
             using var transaction = await _context.Database.BeginTransactionAsync();
@@ -496,12 +671,21 @@ namespace BudgetAPI.Services
 
                 if (accountsPostings.ExpenseId != null && accountsPostings.Type == "P")
                 {
-                    Expenses? expense = await _context.Expenses.FindAsync(accountsPostings.ExpenseId);
+                    Expenses? expense = await _context.Expenses
+                        .FirstOrDefaultAsync(item => item.Id == accountsPostings.ExpenseId && item.UserId == _user.Id);
 
-                    if (expense != null)
+                    if (expense == null)
                     {
-                        expense.Scheduled = false;
+                        throw new ArgumentException("A despesa do lançamento não pertence ao usuário atual.");
                     }
+
+                    expense.Scheduled = false;
+                }
+
+                if (string.Equals(accountsPostings.Type, "Y", StringComparison.OrdinalIgnoreCase))
+                {
+                    ValidateYieldPayloadUnchanged(submittedYield, accountsPostings, applicationDetails);
+                    await ValidateYieldBalanceInvariantAsync(accountsPostings, null);
                 }
 
                 await SaveChangesWithYieldTriggerAsync(accountsPostings, applicationDetails);
@@ -706,7 +890,16 @@ namespace BudgetAPI.Services
 
             var (descOrigin, descDestination) = GetTransferDescriptions(fromAccount, toAccount);
 
-            short nextPos = (short)((_context.AccountsPostings.Where(o => o.Reference == accountPosting.Reference).Max(o => o.Position) ?? 0) + 1);
+            short originPosition = (short)((_context.AccountsPostings
+                .Where(o => o.AccountId == fromAccountId
+                         && o.Reference == accountPosting.Reference
+                         && o.Account!.UserId == _user.Id)
+                .Max(o => o.Position) ?? 0) + 1);
+            short destinationPosition = (short)((_context.AccountsPostings
+                .Where(o => o.AccountId == toAccountId
+                         && o.Reference == accountPosting.Reference
+                         && o.Account!.UserId == _user.Id)
+                .Max(o => o.Position) ?? 0) + 1);
 
             var originPosting = new AccountsPostings
             {
@@ -718,7 +911,7 @@ namespace BudgetAPI.Services
                 Amount      = amount * -1,
                 Note        = accountPosting.Note,
                 Type        = "P",
-                Position    = nextPos
+                Position    = originPosition
             };
 
             var destinationPosting = new AccountsPostings
@@ -731,7 +924,7 @@ namespace BudgetAPI.Services
                 Amount      = amount,
                 Note        = accountPosting.Note,
                 Type        = "R",
-                Position    = (short)(nextPos + 1)
+                Position    = destinationPosition
             };
 
             NormalizeYieldFields(originPosting);

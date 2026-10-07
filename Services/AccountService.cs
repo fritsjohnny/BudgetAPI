@@ -122,7 +122,7 @@ namespace BudgetAPI.Services
             }
 
             decimal currentBalance = await _context.AccountsPostings
-                                                   .Where(ap => ap.AccountId == accountId)
+                                                   .Where(ap => ap.AccountId == accountId && ap.Account!.UserId == _user.Id)
                                                    .SumAsync(ap => (decimal?)ap.Amount) ?? 0;
 
             List<AccountForecastMovement> incomes = await _context.Incomes
@@ -205,11 +205,29 @@ namespace BudgetAPI.Services
             };
         }
 
-        public Task<int> PutAccount(Accounts account)
+        public async Task<int> PutAccount(Accounts account)
         {
-            _context.Entry(account).State = EntityState.Modified;
+            Accounts? saved = await _context.Accounts
+                .FirstOrDefaultAsync(item => item.Id == account.Id && item.UserId == _user.Id);
 
-            return _context.SaveChangesAsync();
+            if (saved == null)
+            {
+                throw new InvalidOperationException("Conta não encontrada para o usuário atual.");
+            }
+
+            saved.Name = account.Name;
+            saved.Color = account.Color;
+            saved.Background = account.Background;
+            saved.CalcInGeneral = account.CalcInGeneral;
+            saved.Disabled = account.Disabled;
+            saved.Position = account.Position;
+            saved.AppPackageName = account.AppPackageName;
+            saved.YieldPercent = account.YieldPercent;
+            saved.YieldIndex = account.YieldIndex;
+            saved.IrPercent = account.IrPercent;
+            saved.IsTaxExempt = account.IsTaxExempt;
+
+            return await _context.SaveChangesAsync();
         }
 
         public Task<int> PostAccount(Accounts account)
@@ -238,14 +256,24 @@ namespace BudgetAPI.Services
             return id == _user.Id;
         }
 
-        public Task<int> SetPositions(List<Accounts> accounts)
+        public async Task<int> SetPositions(List<Accounts> accounts)
         {
-            foreach (Accounts account in accounts)
+            List<int> ids = accounts.Select(account => account.Id).Distinct().ToList();
+            List<Accounts> savedAccounts = await _context.Accounts
+                .Where(account => ids.Contains(account.Id) && account.UserId == _user.Id)
+                .ToListAsync();
+
+            if (savedAccounts.Count != ids.Count)
             {
-                _context.Entry(account).State = EntityState.Modified;
+                throw new InvalidOperationException("Existem contas inválidas para o usuário atual.");
             }
 
-            return _context.SaveChangesAsync();
+            foreach (Accounts saved in savedAccounts)
+            {
+                saved.Position = accounts.First(account => account.Id == saved.Id).Position;
+            }
+
+            return await _context.SaveChangesAsync();
         }
 
         public IQueryable<Accounts> GetAvailableAccounts(string reference)

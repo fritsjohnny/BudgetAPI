@@ -42,7 +42,7 @@ namespace BudgetAPI.Services
 
         public IQueryable<Incomes> GetIncomes()
         {
-            return _context.Incomes.OrderBy(e => e.Position);
+            return _context.Incomes.Where(e => e.UserId == _user.Id).OrderBy(e => e.Position);
         }
 
         public IQueryable<Incomes> GetIncomes(int id)

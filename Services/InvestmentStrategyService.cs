@@ -37,7 +37,7 @@ public sealed class InvestmentStrategyService : IInvestmentStrategyService
             ?? throw new InvalidOperationException("Main account was not found or is disabled.");
 
         decimal balance = await _context.AccountsPostings
-            .Where(x => x.AccountId == main.Id)
+            .Where(x => x.AccountId == main.Id && x.Account!.UserId == _user.Id)
             .SumAsync(x => (decimal?)x.Amount) ?? 0m;
 
         DateTime historyEnd = CurrentBrazilDate();
@@ -145,7 +145,7 @@ public sealed class InvestmentStrategyService : IInvestmentStrategyService
 
 
         Dictionary<int, decimal> balances = await _context.AccountsPostings.AsNoTracking()
-            .Where(x => accountIds.Contains(x.AccountId))
+            .Where(x => accountIds.Contains(x.AccountId) && x.Account!.UserId == _user.Id)
             .GroupBy(x => x.AccountId)
             .Select(group => new { AccountId = group.Key, Balance = group.Sum(x => x.Amount) })
             .ToDictionaryAsync(x => x.AccountId, x => x.Balance);
