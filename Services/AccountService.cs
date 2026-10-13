@@ -226,6 +226,7 @@ namespace BudgetAPI.Services
             saved.YieldIndex = account.YieldIndex;
             saved.IrPercent = account.IrPercent;
             saved.IsTaxExempt = account.IsTaxExempt;
+            saved.TotalBalanceGross = account.TotalBalanceGross;
 
             return await _context.SaveChangesAsync();
         }
