@@ -286,16 +286,18 @@ namespace BudgetAPI.Services
                 return new List<AccountsPostingApplicationDetails>();
             }
 
+            // O front-end envia os valores monetários finais. Copiamos os detalhes sem
+            // arredondar para que a validação compare o mesmo payload que será persistido.
             List<AccountsPostingApplicationDetails> requestDetails = (posting.ApplicationDetails ?? new List<AccountsPostingApplicationDetails>())
                 .Select(detail => new AccountsPostingApplicationDetails
                 {
                     AccountApplicationId = detail.AccountApplicationId,
-                    Amount               = Math.Round(detail.Amount, 2),
-                    GrossAmount          = detail.GrossAmount.HasValue ? Math.Round(detail.GrossAmount.Value, 2) : null,
-                    TotalGrossBalance    = detail.TotalGrossBalance.HasValue ? Math.Round(detail.TotalGrossBalance.Value, 2) : null,
-                    TotalBalance         = detail.TotalBalance.HasValue ? Math.Round(detail.TotalBalance.Value, 2) : null,
-                    TotalIOF             = detail.TotalIOF.HasValue ? Math.Round(detail.TotalIOF.Value, 2) : null,
-                    TotalIR              = detail.TotalIR.HasValue ? Math.Round(detail.TotalIR.Value, 2) : null,
+                    Amount               = detail.Amount,
+                    GrossAmount          = detail.GrossAmount,
+                    TotalGrossBalance    = detail.TotalGrossBalance,
+                    TotalBalance         = detail.TotalBalance,
+                    TotalIOF             = detail.TotalIOF,
+                    TotalIR              = detail.TotalIR,
                     IOFElapsedDays       = detail.IOFElapsedDays
                 })
                 .ToList();
@@ -342,29 +344,29 @@ namespace BudgetAPI.Services
                 throw new InvalidOperationException("Não é permitido adicionar uma aplicação desativada ao rendimento.");
             }
 
-            posting.Amount = requestDetails.Sum(detail => detail.Amount);
-
-            if (requestDetails.All(detail => detail.GrossAmount.HasValue))
+            // Os agregados do lançamento já são calculados pelo front-end. Só usamos
+            // os detalhes como fallback quando um cliente antigo omite um total.
+            if (!posting.GrossAmount.HasValue && requestDetails.All(detail => detail.GrossAmount.HasValue))
             {
                 posting.GrossAmount = requestDetails.Sum(detail => detail.GrossAmount!.Value);
             }
 
-            if (requestDetails.All(detail => detail.TotalGrossBalance.HasValue))
+            if (!posting.TotalGrossBalance.HasValue && requestDetails.All(detail => detail.TotalGrossBalance.HasValue))
             {
                 posting.TotalGrossBalance = requestDetails.Sum(detail => detail.TotalGrossBalance!.Value);
             }
 
-            if (requestDetails.All(detail => detail.TotalIOF.HasValue))
+            if (!posting.TotalIOF.HasValue && requestDetails.All(detail => detail.TotalIOF.HasValue))
             {
                 posting.TotalIOF = requestDetails.Sum(detail => detail.TotalIOF!.Value);
             }
 
-            if (requestDetails.All(detail => detail.TotalIR.HasValue))
+            if (!posting.TotalIR.HasValue && requestDetails.All(detail => detail.TotalIR.HasValue))
             {
                 posting.TotalIR = requestDetails.Sum(detail => detail.TotalIR!.Value);
             }
 
-            if (requestDetails.All(detail => detail.TotalBalance.HasValue))
+            if (!posting.TotalBalance.HasValue && requestDetails.All(detail => detail.TotalBalance.HasValue))
             {
                 posting.TotalBalance = requestDetails.Sum(detail => detail.TotalBalance!.Value);
             }
@@ -375,9 +377,10 @@ namespace BudgetAPI.Services
 
             // Não existe um único IOFElapsedDays representativo de várias aplicações.
             // Os dias de cada aplicação são persistidos individualmente nos detalhes.
-            posting.IOFElapsedDays = requestDetails.Count > 1
-                ? null
-                : requestDetails.FirstOrDefault()?.IOFElapsedDays;
+            if (!posting.IOFElapsedDays.HasValue && requestDetails.Count == 1)
+            {
+                posting.IOFElapsedDays = requestDetails[0].IOFElapsedDays;
+            }
 
             return requestDetails;
         }
