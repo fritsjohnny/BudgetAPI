@@ -16,7 +16,7 @@ namespace BudgetAPI.Services
         Task<int> PutIncomes(Incomes incomes, bool repeatToNextMonths = false, bool preserveFutureValues = false);
         Task PutIncomesAllParcels(Incomes incomes);
         Task PutIncomesWithParcels(Incomes incomes, int qtyMonths);
-        Task<int> SetPositions(List<Incomes> incomes);
+        Task<int> SetPositions(List<PositionUpdateDTO> incomes);
         Task<int> AddValue(Incomes income, decimal value);
         Task<int> PostIncomes(Incomes income);
         Task PostIncomesAllParcels(Incomes incomes);
@@ -142,6 +142,10 @@ namespace BudgetAPI.Services
                 }
 
                 income.RelatedId = savedIncome.RelatedId;
+                income.LinkedExpenseId = savedIncome.LinkedExpenseId;
+                // A posição pertence ao lançamento e não deve ser compartilhada
+                // nem alterada durante a edição.
+                income.Position = savedIncome.Position;
 
                 List<Incomes>? futureIncomes = null;
 
@@ -188,6 +192,35 @@ namespace BudgetAPI.Services
 
                 int result = await _context.SaveChangesAsync();
 
+                if (savedIncome.LinkedExpenseId.HasValue)
+                {
+                    Expenses? linkedExpense = await _context.Expenses.FirstOrDefaultAsync(e =>
+                        e.Id == savedIncome.LinkedExpenseId.Value && e.UserId == _user.Id &&
+                        e.LinkedIncomeId == savedIncome.Id);
+                    
+                    if (linkedExpense != null)
+                    {
+                        await FinancialResourceValidator.ValidateResourcesForUpdateAsync(
+                            _context, _user.Id, linkedExpense.CardId, income.CardId,
+                            linkedExpense.AccountId, income.AccountId);
+                        
+                        linkedExpense.Description  = income.Description;
+                        linkedExpense.Note         = income.Note;
+                        linkedExpense.PeopleId     = income.PeopleId;
+                        linkedExpense.AccountId    = income.AccountId;
+                        linkedExpense.CardId       = income.CardId;
+                        linkedExpense.Reference    = income.Reference;
+                        linkedExpense.ToPay        = income.ToReceive;
+                        linkedExpense.TotalToPay   = income.TotalToReceive;
+                        linkedExpense.Paid         = income.Received;
+                        linkedExpense.ParcelNumber = income.ParcelNumber;
+                        linkedExpense.Parcels      = income.Parcels;
+                        linkedExpense.DueDate      = income.ReceiptDate;
+                       
+                        await _context.SaveChangesAsync();
+                    }
+                }
+
                 await transaction.CommitAsync();
 
                 return result;
@@ -227,6 +260,7 @@ namespace BudgetAPI.Services
 
                 income.UserId = _user.Id;
                 income.RelatedId = savedIncome.RelatedId;
+                income.LinkedExpenseId = savedIncome.LinkedExpenseId;
 
                 if (!income.ParcelNumber.HasValue || income.ParcelNumber.Value <= 0)
                 {
@@ -355,6 +389,8 @@ namespace BudgetAPI.Services
                     "Receita não encontrada para o usuário atual.");
             }
 
+            incomes.LinkedExpenseId = savedIncome.LinkedExpenseId;
+
             await FinancialResourceValidator.ValidateResourcesForUpdateAsync(
                 _context,
                 _user.Id,
@@ -390,7 +426,7 @@ namespace BudgetAPI.Services
             await _context.SaveChangesAsync();
         }
 
-        public Task<int> SetPositions(List<Incomes> incomes)
+        public Task<int> SetPositions(List<PositionUpdateDTO> incomes)
         {
             // Atualizar apenas o campo Position de registros carregados do banco
             List<int> ids = incomes.Select(i => i.Id).Distinct().ToList();
@@ -404,7 +440,7 @@ namespace BudgetAPI.Services
 
             foreach (Incomes s in saved)
             {
-                Incomes? req = incomes.FirstOrDefault(i => i.Id == s.Id);
+                PositionUpdateDTO? req = incomes.FirstOrDefault(i => i.Id == s.Id);
                 if (req != null)
                     s.Position = req.Position;
             }
@@ -412,8 +448,9 @@ namespace BudgetAPI.Services
             return _context.SaveChangesAsync();
         }
 
-        public Task<int> AddValue(Incomes income, decimal value)
+        public async Task<int> AddValue(Incomes income, decimal value)
         {
+            using var transaction = await _context.Database.BeginTransactionAsync();
             income.ToReceive += value;
 
             if (income.TotalToReceive == 0)
@@ -425,9 +462,29 @@ namespace BudgetAPI.Services
                 income.TotalToReceive += value;
             }
 
-            _context.Entry(income).State = EntityState.Modified;
+            await _context.SaveChangesAsync();
+            
+            if (income.LinkedExpenseId.HasValue)
+            {
+                Expenses? linkedExpense = await _context.Expenses.FirstOrDefaultAsync(e =>
+                    e.Id == income.LinkedExpenseId.Value && e.UserId == _user.Id &&
+                    e.LinkedIncomeId == income.Id);
+               
+                if (linkedExpense == null)
+                {
+                    await transaction.CommitAsync();
+                    return 1;
+                }
+               
+                linkedExpense.ToPay      += value;
+                linkedExpense.TotalToPay += value;
+                
+                await _context.SaveChangesAsync();
+            }
 
-            return _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+           
+            return 1;
         }
 
         public async Task<int> PostIncomes(Incomes income)
@@ -576,6 +633,16 @@ namespace BudgetAPI.Services
                                                           )
                                                       ))
                                                  .ToList();
+
+            List<int> incomeIdsToRemove = incomesToRemove.Select(i => i.Id).ToList();
+            List<Expenses> linkedExpenses = _context.Expenses
+                .Where(e => e.UserId == _user.Id && e.LinkedIncomeId.HasValue &&
+                            incomeIdsToRemove.Contains(e.LinkedIncomeId.Value))
+                .ToList();
+            foreach (Expenses linkedExpense in linkedExpenses)
+            {
+                linkedExpense.LinkedIncomeId = null;
+            }
 
             if (incomesToRemove.Any())
             {
@@ -784,24 +851,25 @@ namespace BudgetAPI.Services
         private static IncomesDTO IncomesToDTO(Incomes income) =>
         new IncomesDTO
         {
-            Id             = income.Id,
-            UserId         = income.UserId,
-            Reference      = income.Reference,
-            Position       = income.Position,
-            Description    = income.Description,
-            ToReceive      = income.ToReceive,
-            Received       = income.Received,
-            Remaining      = income.ToReceive - income.Received,
-            ParcelNumber   = income.ParcelNumber,
-            Parcels        = income.Parcels,
-            TotalToReceive = income.TotalToReceive,
-            Note           = income.Note,
-            CardId         = income.CardId,
-            AccountId      = income.AccountId,
-            Type           = income.Type,
-            PeopleId       = income.PeopleId,
-            RelatedId      = income.RelatedId,
-            ReceiptDate    = income.ReceiptDate
+            Id              = income.Id,
+            UserId          = income.UserId,
+            Reference       = income.Reference,
+            Position        = income.Position,
+            Description     = income.Description,
+            ToReceive       = income.ToReceive,
+            Received        = income.Received,
+            Remaining       = income.ToReceive - income.Received,
+            ParcelNumber    = income.ParcelNumber,
+            Parcels         = income.Parcels,
+            TotalToReceive  = income.TotalToReceive,
+            Note            = income.Note,
+            CardId          = income.CardId,
+            AccountId       = income.AccountId,
+            Type            = income.Type,
+            PeopleId        = income.PeopleId,
+            RelatedId       = income.RelatedId,
+            LinkedExpenseId = income.LinkedExpenseId,
+            ReceiptDate     = income.ReceiptDate
         };
 
         private static IncomesDTO2 IncomesToComboList(Incomes income) =>

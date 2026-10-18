@@ -22,6 +22,7 @@
         public bool? Scheduled { get; set; }
         public int? PeopleId { get; set; }
         public int? RelatedId { get; set; }
+        public int? LinkedIncomeId { get; set; }
         public bool? Fixed { get; set; }
         public int? DueDay { get; set; }
         public decimal? ExpectedValue { get; set; }

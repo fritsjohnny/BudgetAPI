@@ -150,7 +150,7 @@ namespace BudgetAPI.Controllers
         }
 
         [HttpPut("SetPositions")]
-        public async Task<ActionResult<Incomes>> SetPositions(List<Incomes> incomes)
+        public async Task<ActionResult> SetPositions(List<PositionUpdateDTO> incomes)
         {
             await _incomeService.SetPositions(incomes);
 

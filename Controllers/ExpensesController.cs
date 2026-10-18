@@ -159,6 +159,24 @@ namespace BudgetAPI.Controllers
             return Ok();
         }
 
+        [HttpPost("{id}/link-income")]
+        public async Task<ActionResult<IncomesDTO>> LinkIncome(int id)
+        {
+            try
+            {
+                IncomesDTO income = await _expenseService.LinkIncome(id);
+                return Ok(income);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                return Problem(ex.Message);
+            }
+        }
+
         [HttpPut("AllParcels/{id}")]
         public async Task<ActionResult<Expenses>> PutExpensesWithParcels(int id, Expenses expenses, bool repeat, int qtyMonths)
         {
@@ -180,7 +198,7 @@ namespace BudgetAPI.Controllers
         }
 
         [HttpPut("SetPositions")]
-        public async Task<ActionResult<Expenses>> SetPositions(List<Expenses> expenses)
+        public async Task<ActionResult> SetPositions(List<PositionUpdateDTO> expenses)
         {
             await _expenseService.SetPositions(expenses);
 

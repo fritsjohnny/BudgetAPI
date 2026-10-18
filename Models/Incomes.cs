@@ -19,6 +19,7 @@
         public int? PeopleId { get; set; }
         public Accounts? Account { get; set; }
         public int? RelatedId { get; set; }
+        public int? LinkedExpenseId { get; set; }
         public DateTime? ReceiptDate { get; set; }
     }
 }
