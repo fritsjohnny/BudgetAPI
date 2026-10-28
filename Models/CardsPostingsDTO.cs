@@ -1,9 +1,11 @@
-﻿namespace BudgetAPI.Models
+namespace BudgetAPI.Models
 {
     public class CardsPostingsDTO
     {
         public int Id { get; set; }
         public int CardId { get; set; }
+        public int? PhysicalCardId { get; set; }
+        public CardsPhysicalCard? PhysicalCard { get; set; }
         public DateTime Date { get; set; }
         public string? Reference { get; set; }
         public int? PeopleId { get; set; }

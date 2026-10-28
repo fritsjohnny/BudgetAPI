@@ -12,10 +12,12 @@ namespace BudgetAPI.Controllers
     public class CardsController : ControllerBase
     {
         private readonly ICardService _cardService;
+        private readonly Microsoft.AspNetCore.DataProtection.IDataProtector _statementPasswordProtector;
 
-        public CardsController(ICardService cardService)
+        public CardsController(ICardService cardService, Microsoft.AspNetCore.DataProtection.IDataProtectionProvider dataProtectionProvider)
         {
             _cardService = cardService;
+            _statementPasswordProtector = dataProtectionProvider.CreateProtector("BudgetAPI.Cards.StatementPassword.v1");
         }
 
         // GET: api/Card
@@ -50,6 +52,16 @@ namespace BudgetAPI.Controllers
 
             try
             {
+                Cards? existingCard = await _cardService.GetCards(id).FirstOrDefaultAsync();
+                if (existingCard == null) return NotFound();
+
+                card.StatementPasswordProtected = !string.IsNullOrEmpty(card.StatementPassword)
+                    ? Convert.ToBase64String(_statementPasswordProtector.Protect(System.Text.Encoding.UTF8.GetBytes(card.StatementPassword)))
+                    : card.ClearStatementPassword
+                        ? null
+                        : existingCard.StatementPasswordProtected;
+                card.StatementPassword = null;
+                card.ClearStatementPassword = false;
                 await _cardService.PutCard(id, card);
             }
             catch (DbUpdateConcurrencyException dex)
@@ -73,6 +85,11 @@ namespace BudgetAPI.Controllers
         [HttpPost]
         public async Task<ActionResult<Cards>> PostCard(Cards card)
         {
+            card.StatementPasswordProtected = string.IsNullOrEmpty(card.StatementPassword)
+                ? null
+                : Convert.ToBase64String(_statementPasswordProtector.Protect(System.Text.Encoding.UTF8.GetBytes(card.StatementPassword)));
+            card.StatementPassword = null;
+            card.ClearStatementPassword = false;
             await _cardService.PostCard(card);
 
             return CreatedAtAction("GetCards", new { id = card.Id }, card);

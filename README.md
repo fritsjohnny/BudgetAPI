@@ -47,6 +47,18 @@ O **BudgetAPI** é o backend de um sistema financeiro completo, responsável por
 - Local → `secrets.json`
 - Produção → Azure Application Settings
 
+### Importação de faturas C6
+
+O importador lê o CSV dentro do ZIP protegido do C6. Cadastre a senha da fatura no cartão; a API protege a senha antes de armazená-la e a descriptografa apenas durante a importação. A configuração global antiga continua disponível como fallback:
+
+```powershell
+dotnet user-secrets set "C6Statement:ZipPassword" "<senha do ZIP>" --project BudgetAPI.csproj
+```
+
+No Azure, configure a chave `C6Statement:ZipPassword` em Application Settings. A tabela de cartões físicos, a associação opcional em `CardsPostings` e os apelidos de descrição são criados pelo script idempotente `Scripts/20261013_AddPhysicalCardsAndStatementAliases.sql`.
+
+As senhas por cartão são protegidas com ASP.NET Core Data Protection. Em produção, mantenha o key ring persistente e compartilhado entre instâncias da API para que as senhas continuem legíveis após reinícios e escalabilidade horizontal.
+
 ---
 
 ## ⚙️ Decisões de arquitetura

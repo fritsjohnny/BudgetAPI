@@ -11,5 +11,12 @@
 		public int? ClosingDay { get; set; }
 		public int? DueDay { get; set; }
         public string? AppPackageName { get; set; }
+        public string? StatementProvider { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string? StatementPasswordProtected { get; set; }
+        [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+        public string? StatementPassword { get; set; }
+        [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+        public bool ClearStatementPassword { get; set; }
     }
 }

@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using BudgetAPI.Data;
 using BudgetAPI.Helpers;
 using BudgetAPI.Models;
@@ -26,12 +26,14 @@ namespace BudgetAPI.Services
         Task PostCardsPostingsFromNotification(CardsPostings cardPosting, bool allowClosedInvoiceOperation = false);
         Task PostCardsPostingsWithParcelsFromNotification(CardsPostings cardPosting, bool repeat, int qtyMonths, bool allowClosedInvoiceOperation = false);
         Task DeleteCardsPostings(CardsPostings cardPosting, bool allowClosedInvoiceOperation = false);
+        Task UpdatePhysicalCardAssociationsAsync(List<PhysicalCardAssociationInput> associations);
         Task<Expenses> ConvertToExpenseAsync(int cardPostingId, bool allowClosedInvoiceOperation = false);
         Task ReorderPositionsByDate(int cardId, string reference);
         Task<int> SetPositions(List<CardsPostings> cardsPostings);
         bool ValidarUsuario(int cardPostingId);
         bool CardsPostingsExists(int id);
         bool ValidateCardAndUser(int cardId);
+        bool ValidatePhysicalCardAndUser(int cardId, int? physicalCardId);
         int? GetCategory(string description);
     }
     public class CardPostingService : ICardPostingService
@@ -138,6 +140,7 @@ namespace BudgetAPI.Services
             int? parcels      = preserveInstallmentStructure ? provisioned.Parcels : cardPosting.Parcels;
 
             provisioned.CardId       = cardPosting.CardId;
+            provisioned.PhysicalCardId = cardPosting.PhysicalCardId;
             provisioned.Date         = cardPosting.Date;
             provisioned.Reference    = cardPosting.Reference;
             provisioned.Description  = cardPosting.Description;
@@ -157,6 +160,7 @@ namespace BudgetAPI.Services
 
             cardPosting.Id           = provisioned.Id;
             cardPosting.CardId       = provisioned.CardId;
+            cardPosting.PhysicalCardId = provisioned.PhysicalCardId;
             cardPosting.Date         = provisioned.Date;
             cardPosting.Reference    = provisioned.Reference;
             cardPosting.Position     = provisioned.Position;
@@ -191,6 +195,7 @@ namespace BudgetAPI.Services
         public IQueryable<CardsPostings> GetCardsPostings(int id)
         {
             IQueryable<CardsPostings>? cardsPostings = _context.CardsPostings.Include(c => c.Card)
+                                                                             .Include(c => c.PhysicalCard)
                                                                              .Include(c => c.People)
                                                                              .Where(c => c.Id == id && c.Card!.UserId == _user.Id);
 
@@ -200,6 +205,7 @@ namespace BudgetAPI.Services
         public IQueryable<CardsPostingsDTO> GetCardsPostingsById(int id)
         {
             IQueryable<CardsPostingsDTO>? cardsPostings = _context.CardsPostings.Include(c => c.Card)
+                                                                                .Include(c => c.PhysicalCard)
                                                                                 .Include(c => c.People)
                                                                                 .Where(c => c.Id == id && c.Card!.UserId == _user.Id)
                                                                                 .Select(c => CardPostingToDTO(c));
@@ -247,6 +253,7 @@ namespace BudgetAPI.Services
         public IQueryable<CardsPostingsDTO> GetCardsPostings(int cardId, string reference)
         {
             IQueryable<CardsPostingsDTO>? cardsPostings = _context.CardsPostings.Include(c => c.Card)
+                                                                                .Include(c => c.PhysicalCard)
                                                                                 .Include(c => c.People)
                                                                                 .Where(c => (cardId == 0 || c.CardId == cardId) && c.Reference == reference && c.Card!.UserId == _user.Id)
                                                                                 .OrderBy(c => c.Position)
@@ -259,6 +266,7 @@ namespace BudgetAPI.Services
         public IQueryable<CardsPostingsDTO> GetCardsPostingsByReferences(string initialReference, string finalReference, int categoryId, bool others)
         {
             IQueryable<CardsPostingsDTO>? cardsPostings = _context.CardsPostings.Include(c => c.Card)
+                                                                                .Include(c => c.PhysicalCard)
                                                                                 .Include(c => c.Category)
                                                                                 .Include(c => c.People)
                                                                                 .Where(c => string.Compare(c.Reference, initialReference) >= 0 &&
@@ -435,6 +443,7 @@ namespace BudgetAPI.Services
                             cardPosting.CardId);
 
                         item.CardId = cardPosting.CardId;
+                        item.PhysicalCardId = cardPosting.PhysicalCardId;
 
                         item.Date = isInstallment
                             ? cardPosting.Date
@@ -1525,6 +1534,7 @@ namespace BudgetAPI.Services
                 CardsPostings item = new()
                 {
                     CardId       = cardPosting.CardId,
+                    PhysicalCardId = cardPosting.PhysicalCardId,
                     Date         = cardPosting.Date,
                     Reference    = reference,
                     PeopleId     = cardPosting.PeopleId,
@@ -1561,12 +1571,77 @@ namespace BudgetAPI.Services
             return _context.Cards.Where(c => c.Id == cardId && c.UserId == _user.Id).Any();
         }
 
+        public bool ValidatePhysicalCardAndUser(int cardId, int? physicalCardId)
+        {
+            if (!physicalCardId.HasValue)
+            {
+                return true;
+            }
+
+            return _context.CardsPhysicalCards.Any(card =>
+                card.Id == physicalCardId.Value &&
+                card.CardId == cardId &&
+                card.Card!.UserId == _user.Id);
+        }
+
+        public async Task UpdatePhysicalCardAssociationsAsync(List<PhysicalCardAssociationInput> associations)
+        {
+            if (associations.Count == 0)
+                return;
+
+            if (associations.Any(item => item.CardsPostingId <= 0) ||
+                associations.Select(item => item.CardsPostingId).Distinct().Count() != associations.Count)
+            {
+                throw new InvalidOperationException("A lista de associações contém lançamentos inválidos ou repetidos.");
+            }
+
+            List<int> postingIds = associations.Select(item => item.CardsPostingId).ToList();
+            List<CardsPostings> postings = await _context.CardsPostings
+                .Include(item => item.Card)
+                .Where(item => postingIds.Contains(item.Id) && item.Card!.UserId == _user.Id)
+                .ToListAsync();
+
+            if (postings.Count != associations.Count)
+                throw new KeyNotFoundException("Um ou mais lançamentos do cartão não foram encontrados.");
+
+            Dictionary<int, CardsPostings> postingsById = postings.ToDictionary(item => item.Id);
+            List<int> physicalCardIds = associations
+                .Where(item => item.PhysicalCardId.HasValue)
+                .Select(item => item.PhysicalCardId!.Value)
+                .Distinct()
+                .ToList();
+            Dictionary<int, CardsPhysicalCard> physicalCardsById = physicalCardIds.Count == 0
+                ? new Dictionary<int, CardsPhysicalCard>()
+                : await _context.CardsPhysicalCards
+                    .Where(card => physicalCardIds.Contains(card.Id) && card.Card!.UserId == _user.Id)
+                    .ToDictionaryAsync(card => card.Id);
+
+            foreach (PhysicalCardAssociationInput association in associations)
+            {
+                CardsPostings posting = postingsById[association.CardsPostingId];
+                if (association.PhysicalCardId.HasValue &&
+                    (!physicalCardsById.TryGetValue(association.PhysicalCardId.Value, out CardsPhysicalCard? physicalCard) ||
+                     physicalCard.CardId != posting.CardId))
+                {
+                    throw new InvalidOperationException("O cartão físico selecionado não pertence ao cartão do lançamento.");
+                }
+
+                // Associação cadastral: altera somente o vínculo, sem executar regras
+                // financeiras ou de fechamento de fatura.
+                posting.PhysicalCardId = association.PhysicalCardId;
+            }
+
+            await _context.SaveChangesAsync();
+        }
+
         private static CardsPostingsDTO CardPostingToDTO(CardsPostings cardPosting)
         {
             CardsPostingsDTO cardPostingDTO = new()
             {
                 Id           = cardPosting.Id,
                 CardId       = cardPosting.CardId,
+                PhysicalCardId = cardPosting.PhysicalCardId,
+                PhysicalCard = cardPosting.PhysicalCard,
                 Date         = cardPosting.Date,
                 Reference    = cardPosting.Reference,
                 PeopleId     = cardPosting.PeopleId,
@@ -1609,6 +1684,7 @@ namespace BudgetAPI.Services
                 CardsPostings item = new()
                 {
                     CardId       = cardPosting.CardId,
+                    PhysicalCardId = cardPosting.PhysicalCardId,
                     Date         = date,
                     DueDate      = dueDate,
                     Reference    = reference,

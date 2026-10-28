@@ -1,4 +1,4 @@
-﻿using BudgetAPI.Models;
+using BudgetAPI.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace BudgetAPI.Data
@@ -41,6 +41,11 @@ namespace BudgetAPI.Data
                     .OnDelete(DeleteBehavior.Cascade);
             });
 
+            modelBuilder.Entity<Cards>()
+                .Property(card => card.StatementPasswordProtected)
+                .HasColumnType("nvarchar(2048)")
+                .HasMaxLength(2048);
+
             modelBuilder.Entity<AccountsPostingApplicationDetails>(entity =>
             {
                 entity.ToTable("AccountsPostingApplicationDetails", "dbo");
@@ -56,6 +61,57 @@ namespace BudgetAPI.Data
                 entity.HasOne(x => x.AccountPosting).WithMany(x => x.ApplicationDetails).HasForeignKey(x => x.AccountPostingId).OnDelete(DeleteBehavior.Cascade);
                 entity.HasOne(x => x.AccountApplication).WithMany().HasForeignKey(x => x.AccountApplicationId).OnDelete(DeleteBehavior.NoAction);
             });
+
+            modelBuilder.Entity<CardsPhysicalCard>(entity =>
+            {
+                entity.ToTable("CardsPhysicalCards", "dbo");
+                entity.HasKey(card => card.Id);
+                entity.Property(card => card.NameOnCard).HasColumnType("varchar(100)").HasMaxLength(100).IsRequired();
+                entity.Property(card => card.LastFourDigits).HasColumnType("char(4)").HasMaxLength(4).IsRequired();
+                entity.Property(card => card.IsActive).IsRequired();
+                entity.Property(card => card.CreatedAt).HasColumnType("datetime2(0)").IsRequired();
+                entity.HasIndex(card => new { card.CardId, card.LastFourDigits, card.NameOnCard }).IsUnique();
+                entity.HasOne(card => card.Card).WithMany().HasForeignKey(card => card.CardId).OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<CardStatementDescriptionAlias>(entity =>
+            {
+                entity.ToTable("CardStatementDescriptionAliases", "dbo");
+                entity.HasKey(alias => alias.Id);
+                entity.Property(alias => alias.StatementDescription).HasColumnType("varchar(150)").HasMaxLength(150).IsRequired();
+                entity.Property(alias => alias.NormalizedStatementDescription).HasColumnType("varchar(150)").HasMaxLength(150).IsRequired();
+                entity.Property(alias => alias.BudgetDescription).HasColumnType("varchar(150)").HasMaxLength(150).IsRequired();
+                entity.Property(alias => alias.CreatedAt).HasColumnType("datetime2(0)").IsRequired();
+                entity.Property(alias => alias.UpdatedAt).HasColumnType("datetime2(0)").IsRequired();
+                entity.HasIndex(alias => new { alias.CardId, alias.PhysicalCardId, alias.NormalizedStatementDescription }).IsUnique();
+                entity.HasOne(alias => alias.Card).WithMany().HasForeignKey(alias => alias.CardId).OnDelete(DeleteBehavior.Cascade);
+                entity.HasOne(alias => alias.PhysicalCard).WithMany().HasForeignKey(alias => alias.PhysicalCardId).OnDelete(DeleteBehavior.NoAction);
+            });
+
+            modelBuilder.Entity<CardStatementReconciliationMatch>(entity =>
+            {
+                entity.ToTable("CardStatementReconciliationMatches", "dbo");
+                entity.HasKey(match => match.Id);
+                entity.Property(match => match.Reference).HasColumnType("varchar(6)").HasMaxLength(6).IsRequired();
+                entity.Property(match => match.TransactionFingerprint).HasColumnType("char(64)").HasMaxLength(64).IsRequired();
+                entity.Property(match => match.PurchaseDate).HasColumnType("date").IsRequired();
+                entity.Property(match => match.LastFourDigits).HasColumnType("char(4)").HasMaxLength(4).IsRequired();
+                entity.Property(match => match.NormalizedStatementDescription).HasColumnType("varchar(150)").HasMaxLength(150).IsRequired();
+                entity.Property(match => match.Installment).HasColumnType("varchar(20)").HasMaxLength(20).IsRequired();
+                entity.Property(match => match.AmountBrl).HasColumnType("decimal(18,2)").IsRequired();
+                entity.Property(match => match.IsIgnored).IsRequired();
+                entity.Property(match => match.IsResolved).IsRequired();
+                entity.Property(match => match.CreatedAt).HasColumnType("datetime2(0)").IsRequired();
+                entity.Property(match => match.UpdatedAt).HasColumnType("datetime2(0)").IsRequired();
+                entity.HasIndex(match => new { match.CardId, match.Reference, match.TransactionFingerprint }).IsUnique();
+                entity.HasOne(match => match.Card).WithMany().HasForeignKey(match => match.CardId).OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<CardsPostings>()
+                .HasOne(posting => posting.PhysicalCard)
+                .WithMany()
+                .HasForeignKey(posting => posting.PhysicalCardId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             modelBuilder.HasDbFunction(GetDbFunctionMethod(nameof(GetAccountTotals), typeof(int), typeof(string), typeof(int)));
             modelBuilder.HasDbFunction(GetDbFunctionMethod(nameof(GetAccountsSummary), typeof(string), typeof(int)));
@@ -91,6 +147,9 @@ namespace BudgetAPI.Data
         public DbSet<Users> Users { get; set; } = null!;
         public DbSet<AccountsPostings> AccountsPostings { get; set; } = null!;
         public DbSet<CardsPostings> CardsPostings { get; set; } = null!;
+        public DbSet<CardsPhysicalCard> CardsPhysicalCards { get; set; } = null!;
+        public DbSet<CardStatementDescriptionAlias> CardStatementDescriptionAliases { get; set; } = null!;
+        public DbSet<CardStatementReconciliationMatch> CardStatementReconciliationMatches { get; set; } = null!;
         public DbSet<Expenses> Expenses { get; set; } = null!;
         public DbSet<Incomes> Incomes { get; set; } = null!;
         public DbSet<People> People { get; set; } = null!;

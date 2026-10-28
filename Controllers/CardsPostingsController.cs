@@ -1,4 +1,4 @@
-﻿using BudgetAPI.Authorization;
+using BudgetAPI.Authorization;
 using BudgetAPI.Models;
 using BudgetAPI.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -99,6 +99,24 @@ namespace BudgetAPI.Controllers
             return Ok();
         }
 
+        [HttpPut("PhysicalCardAssociations")]
+        public async Task<IActionResult> UpdatePhysicalCardAssociations([FromBody] List<PhysicalCardAssociationInput> associations)
+        {
+            try
+            {
+                await _cardPostingService.UpdatePhysicalCardAssociationsAsync(associations);
+                return NoContent();
+            }
+            catch (KeyNotFoundException)
+            {
+                return NotFound();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
         [HttpPut("ReorderByDate/{cardId}/{reference}")]
         public async Task<IActionResult> ReorderPositionsByDate(int cardId, string reference)
         {
@@ -125,10 +143,14 @@ namespace BudgetAPI.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> PutCardsPostings(int id, CardsPostings cardsPostings, bool repeatToNextMonths = false, bool preserveFutureValues = false, bool allowClosedInvoiceOperation = false)
         {
-            if (id != cardsPostings.Id || !_cardPostingService.ValidarUsuario(id))
+            if (id != cardsPostings.Id ||
+                !_cardPostingService.ValidarUsuario(id) ||
+                !_cardPostingService.ValidatePhysicalCardAndUser(cardsPostings.CardId, cardsPostings.PhysicalCardId))
             {
                 return BadRequest();
             }
+
+            cardsPostings.PhysicalCard = null;
 
             try
             {
@@ -166,10 +188,14 @@ namespace BudgetAPI.Controllers
         [HttpPut("AllParcels/{id}")]
         public async Task<IActionResult> PutCardsPostingsWithParcels(int id, CardsPostings cardsPostings, bool repeat, int qtyMonths, bool allowClosedInvoiceOperation = false)
         {
-            if (id != cardsPostings.Id || !_cardPostingService.ValidarUsuario(id))
+            if (id != cardsPostings.Id ||
+                !_cardPostingService.ValidarUsuario(id) ||
+                !_cardPostingService.ValidatePhysicalCardAndUser(cardsPostings.CardId, cardsPostings.PhysicalCardId))
             {
                 return BadRequest();
             }
+
+            cardsPostings.PhysicalCard = null;
 
             try
             {
@@ -199,10 +225,13 @@ namespace BudgetAPI.Controllers
         [HttpPost]
         public async Task<ActionResult<CardsPostingsDTO?>> PostCardsPostings(CardsPostings cardsPostings, bool allowClosedInvoiceOperation = false)
         {
-            if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId))
+            if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId) ||
+                !_cardPostingService.ValidatePhysicalCardAndUser(cardsPostings.CardId, cardsPostings.PhysicalCardId))
             {
                 return BadRequest();
             }
+
+            cardsPostings.PhysicalCard = null;
 
             try
             {
@@ -233,10 +262,13 @@ namespace BudgetAPI.Controllers
         [HttpPost("FromNotification")]
         public async Task<ActionResult<CardsPostingsDTO?>> PostCardsPostingsFromNotification(CardsPostings cardsPostings, bool allowClosedInvoiceOperation = false)
         {
-            if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId))
+            if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId) ||
+                !_cardPostingService.ValidatePhysicalCardAndUser(cardsPostings.CardId, cardsPostings.PhysicalCardId))
             {
                 return BadRequest();
             }
+
+            cardsPostings.PhysicalCard = null;
 
             try
             {
@@ -267,10 +299,13 @@ namespace BudgetAPI.Controllers
         [HttpPost("FromNotification/AllParcels")]
         public async Task<ActionResult<CardsPostingsDTO?>> PostCardsPostingsWithParcelsFromNotification(CardsPostings cardsPostings, bool repeat, int qtyMonths, bool allowClosedInvoiceOperation = false)
         {
-            if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId))
+            if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId) ||
+                !_cardPostingService.ValidatePhysicalCardAndUser(cardsPostings.CardId, cardsPostings.PhysicalCardId))
             {
                 return BadRequest();
             }
+
+            cardsPostings.PhysicalCard = null;
 
             try
             {
@@ -301,10 +336,13 @@ namespace BudgetAPI.Controllers
         [HttpPost("AllParcels")]
         public async Task<ActionResult<CardsPostingsDTO?>> PostCardsPostingsWithParcels(CardsPostings cardsPostings, bool repeat, int qtyMonths, bool allowClosedInvoiceOperation = false)
         {
-            if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId))
+            if (!_cardPostingService.ValidateCardAndUser(cardsPostings.CardId) ||
+                !_cardPostingService.ValidatePhysicalCardAndUser(cardsPostings.CardId, cardsPostings.PhysicalCardId))
             {
                 return BadRequest();
             }
+
+            cardsPostings.PhysicalCard = null;
 
             try
             {
@@ -396,4 +434,5 @@ namespace BudgetAPI.Controllers
             }
         }
     }
+
 }

@@ -40,11 +40,14 @@ namespace BudgetAPI.Services
             return card;
         }
 
-        public Task<int> PutCard(int id, Cards card)
+        public async Task<int> PutCard(int id, Cards card)
         {
-            _context.Entry(card).State = EntityState.Modified;
+            Cards? existingCard = await _context.Cards
+                .FirstOrDefaultAsync(item => item.Id == id && item.UserId == _user.Id);
+            if (existingCard == null) return 0;
 
-            return _context.SaveChangesAsync();
+            _context.Entry(existingCard).CurrentValues.SetValues(card);
+            return await _context.SaveChangesAsync();
         }
 
         public Task<int> PostCard(Cards card)
@@ -85,6 +88,8 @@ namespace BudgetAPI.Services
             DueDay         = card.DueDay,
             ClosingDay     = card.ClosingDay,
             AppPackageName = card.AppPackageName,
+            StatementProvider = card.StatementProvider,
+            HasStatementPassword = card.StatementPasswordProtected != null,
         };
 
         public IQueryable<CardsDTO> GetAvailableCards(string reference, DateTime currentDate)
@@ -118,6 +123,8 @@ namespace BudgetAPI.Services
                     DueDay         = c.DueDay,
                     ClosingDay     = c.ClosingDay,
                     AppPackageName = c.AppPackageName,
+                    StatementProvider = c.StatementProvider,
+                    HasStatementPassword = c.StatementPasswordProtected != null,
                     ExpenseDueDate = _context.Expenses
                         .Where(e =>
                             e.UserId == _user.Id &&

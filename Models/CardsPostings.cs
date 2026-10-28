@@ -1,9 +1,10 @@
-﻿namespace BudgetAPI.Models
+namespace BudgetAPI.Models
 {
     public class CardsPostings
     {
         public int Id { get; set; }
         public int CardId { get; set; }
+        public int? PhysicalCardId { get; set; }
         public DateTime Date { get; set; }
         public string? Reference { get; set; }
         public int? PeopleId { get; set; }
@@ -19,6 +20,7 @@
         public int? RelatedId { get; set; }
         public People? People { get; set; }
         public Cards? Card { get; set; }
+        public CardsPhysicalCard? PhysicalCard { get; set; }
         public Categories? Category { get; set; }
         public bool? Fixed { get; set; }
         public DateTime? DueDate { get; set; }

@@ -14,6 +14,7 @@ string connectionString = builder.Configuration.GetConnectionString(connectionNa
     throw new InvalidOperationException($"A connection string '{connectionName}' não foi configurada.");
 
 builder.Services.AddDbContext<BudgetContext>(options => options.UseSqlServer(connectionString));
+builder.Services.AddDataProtection();
 
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
@@ -38,6 +39,7 @@ builder.Services.AddScoped<IAccountPostingService, AccountPostingService>();
 builder.Services.AddScoped<IBudgetService, BudgetService>();
 builder.Services.AddScoped<ICardService, CardService>();
 builder.Services.AddScoped<ICardPostingService, CardPostingService>();
+builder.Services.AddScoped<ICardStatementService, CardStatementService>();
 builder.Services.AddScoped<ICardReceiptService, CardReceiptService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
