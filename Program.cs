@@ -34,6 +34,7 @@ builder.Services.Configure<AppSettings>(builder.Configuration.GetSection("AppSet
 // Configure DI for application services
 builder.Services.AddScoped<IJwtUtils, JwtUtils>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IAccountEmailService, AccountEmailService>();
 builder.Services.AddScoped<IAccountService, AccountService>();
 builder.Services.AddScoped<IAccountPostingService, AccountPostingService>();
 builder.Services.AddScoped<IBudgetService, BudgetService>();

@@ -61,6 +61,20 @@ As senhas por cartão são protegidas com ASP.NET Core Data Protection. Em produ
 
 ---
 
+## 📧 Confirmação de e-mail e recuperação de senha
+
+Antes de publicar a versão que exige e-mail em novas contas, aplique
+`Scripts/20261028_AddAccountContactFields.sql` no banco SQL Server.
+
+Configure no ambiente da API:
+
+- `BUDGETAPI_EMAIL_FROM`: endereço remetente autorizado pelo SMTP.
+- `BUDGETAPI_SMTP_USER` e `BUDGETAPI_SMTP_PASS`: credenciais SMTP já usadas pelos serviços de e-mail.
+
+Os links de confirmação e redefinição apontam para a URL de produção do frontend, definida em `Services/AccountEmailService.cs`.
+
+Os links usam Angular hash routing. Tokens de confirmação e redefinição são aleatórios, de uso único, armazenados no banco somente como SHA-256 e expiram em 24 horas e 30 minutos, respectivamente. A troca autenticada exige a senha atual. Após trocar ou redefinir a senha, a versão da credencial invalida JWTs emitidos anteriormente.
+
 ## ⚙️ Decisões de arquitetura
 
 🔹 Controllers enxutos  

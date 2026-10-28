@@ -13,6 +13,19 @@ namespace BudgetAPI.Data
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+            modelBuilder.Entity<AccountVerificationCode>(entity =>
+            {
+                entity.ToTable("AccountVerificationCodes", "dbo");
+                entity.HasKey(code => code.Id);
+                entity.Property(code => code.Purpose).HasMaxLength(32).IsRequired();
+                entity.Property(code => code.ValueHash).HasColumnType("char(64)").HasMaxLength(64).IsRequired();
+                entity.Property(code => code.Email).HasMaxLength(254);
+                entity.Property(code => code.CreatedAtUtc).HasColumnType("datetime2(0)").IsRequired();
+                entity.Property(code => code.ExpiresAtUtc).HasColumnType("datetime2(0)").IsRequired();
+                entity.HasIndex(code => code.ValueHash).IsUnique();
+                entity.HasIndex(code => new { code.UserId, code.Purpose, code.CreatedAtUtc });
+            });
+
 
             modelBuilder.Entity<AccountsDTO>().ToTable("AccountsDTO").HasNoKey();
             modelBuilder.Entity<AccountsSummary>().ToTable("AccountsSummary").HasNoKey();
@@ -145,6 +158,7 @@ namespace BudgetAPI.Data
         public DbSet<Accounts> Accounts { get; set; } = null!;
         public DbSet<Cards> Cards { get; set; } = null!;
         public DbSet<Users> Users { get; set; } = null!;
+        public DbSet<AccountVerificationCode> AccountVerificationCodes { get; set; } = null!;
         public DbSet<AccountsPostings> AccountsPostings { get; set; } = null!;
         public DbSet<CardsPostings> CardsPostings { get; set; } = null!;
         public DbSet<CardsPhysicalCard> CardsPhysicalCards { get; set; } = null!;

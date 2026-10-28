@@ -19,61 +19,120 @@ namespace BudgetAPI.Controllers
 
         [AllowAnonymous]
         [HttpPost("authenticate")]
-        public IActionResult Authenticate(UsersAuthenticateRequest model)
-        {
-            UsersAuthenticateResponse? response = _userService.Authenticate(model);
-
-            return Ok(response);
-        }
+        public IActionResult Authenticate(UsersAuthenticateRequest model) =>
+            Ok(_userService.Authenticate(model));
 
         [AllowAnonymous]
         [HttpPost("register")]
         public IActionResult Register(UsersRegisterRequest newUser)
         {
             if (_userService.UserExists(newUser))
-            {
-                return Problem("Usuário já existe!");
-            }
+                return Conflict(new { message = "Não foi possível concluir o cadastro. Verifique os dados informados." });
 
             _userService.Register(newUser);
-
-            return Ok(new { message = "Cadastro concluído!" });
+            return Accepted(new { message = "Cadastro criado. Confirme seu e-mail para ativar a conta." });
         }
+
+        [AllowAnonymous]
+        [HttpPost("verify-email")]
+        public IActionResult VerifyEmail(EmailTokenRequest model)
+        {
+            _userService.VerifyEmail(model);
+            return Ok(new { message = "E-mail confirmado." });
+        }
+
+        [AllowAnonymous]
+        [HttpPost("resend-verification")]
+        public IActionResult ResendVerification(PasswordResetEmailRequest model)
+        {
+            _userService.ResendEmailVerification(model.Email);
+            return Ok(new { message = "Se a conta precisar de confirmação, enviaremos instruções ao endereço informado." });
+        }
+
+        [AllowAnonymous]
+        [HttpPost("forgot-password")]
+        public IActionResult ForgotPassword(PasswordResetEmailRequest model)
+        {
+            _userService.RequestPasswordReset(model.Email);
+            return Ok(new { message = "Se existir uma conta com e-mail confirmado, enviaremos instruções para redefinir a senha." });
+        }
+
+        [AllowAnonymous]
+        [HttpPost("reset-password")]
+        public IActionResult ResetPassword(PasswordResetRequest model)
+        {
+            _userService.ResetPassword(model);
+            return Ok(new { message = "Senha redefinida." });
+        }
+
+        [HttpPost("change-password")]
+        public IActionResult ChangePassword(PasswordChangeRequest model)
+        {
+            _userService.ChangePassword(model);
+            return NoContent();
+        }
+
+        [HttpGet("profile")]
+        public IActionResult GetProfile()
+        {
+            var user = HttpContext.Items["User"] as Users;
+            if (user == null)
+                return Unauthorized(new { message = "Unauthorized" });
+
+            return Ok(new UserProfileResponse
+            {
+                Name = user.Name,
+                Email = user.Email,
+                EmailVerified = user.EmailVerified,
+                PendingEmail = user.PendingEmail
+            });
+        }
+
+        [HttpPut("profile")]
+        public IActionResult UpdateProfile(UserProfileUpdateRequest model) =>
+            Ok(_userService.UpdateProfile(model));
 
         [HttpGet]
         public IActionResult GetAll()
         {
-            IEnumerable<Users>? users = _userService.GetAll();
-
-            return Ok(users);
+            var user = HttpContext.Items["User"] as Users;
+            return user == null ? Unauthorized() : Ok(new[] { user });
         }
 
         [HttpGet("{id}")]
         public IActionResult GetById(int id)
         {
-            Users? user = _userService.GetById(id);
-
-            return Ok(user);
+            var currentUser = HttpContext.Items["User"] as Users;
+            if (currentUser == null)
+                return Unauthorized();
+            if (currentUser.Id != id)
+                return Forbid();
+            return Ok(_userService.GetById(id));
         }
 
         [HttpPut("{id}")]
         public IActionResult Update(int id, UsersUpdateRequest currentUser)
         {
-            if (_userService.UserExists(id, currentUser))
-            {
-                return Problem("Usuário já existe!");
-            }
+            var authenticatedUser = HttpContext.Items["User"] as Users;
+            if (authenticatedUser == null)
+                return Unauthorized();
+            if (authenticatedUser.Id != id)
+                return Forbid();
 
             _userService.Update(id, currentUser);
-
             return Ok(new { message = "Usuário atualizado!" });
         }
 
         [HttpDelete("{id}")]
         public IActionResult Delete(int id)
         {
-            _userService.Delete(id);
+            var authenticatedUser = HttpContext.Items["User"] as Users;
+            if (authenticatedUser == null)
+                return Unauthorized();
+            if (authenticatedUser.Id != id)
+                return Forbid();
 
+            _userService.Delete(id);
             return Ok(new { message = "Usuário excluído!" });
         }
 
@@ -87,14 +146,10 @@ namespace BudgetAPI.Controllers
         public IActionResult UpdateFcmToken([FromBody] FcmTokenDTO dto)
         {
             var user = HttpContext.Items["User"] as Users;
-
             if (user == null)
-            {
-                return Problem("Usuário não autenticado.");
-            }
+                return Unauthorized(new { message = "Usuário não autenticado." });
 
             _userService.UpdateFcmToken(user.Id, dto.Token, dto.Timezone);
-
             return Ok(new { message = "Token atualizado com sucesso!" });
         }
     }
