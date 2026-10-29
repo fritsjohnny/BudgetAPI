@@ -22,6 +22,9 @@
         public decimal? TotalGrossBalance { get; set; }
         public decimal? TotalIOF { get; set; }
         public decimal? TotalIR { get; set; }
+        public decimal? DiRatePercent { get; set; }
+        public DateTime? DiRateDate { get; set; }
+        public bool? DiRateFallback { get; set; }
         public int? IOFElapsedDays { get; set; }
         public int? ToAccountId { get; set; }
         public int? RelatedId { get; set; }

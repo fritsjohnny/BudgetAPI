@@ -75,6 +75,12 @@ namespace BudgetAPI.Data
                 entity.HasOne(x => x.AccountApplication).WithMany().HasForeignKey(x => x.AccountApplicationId).OnDelete(DeleteBehavior.NoAction);
             });
 
+            modelBuilder.Entity<AccountsPostings>(entity =>
+            {
+                entity.Property(x => x.DiRatePercent).HasColumnType("decimal(18,10)");
+                entity.Property(x => x.DiRateDate).HasColumnType("date");
+            });
+
             modelBuilder.Entity<CardsPhysicalCard>(entity =>
             {
                 entity.ToTable("CardsPhysicalCards", "dbo");

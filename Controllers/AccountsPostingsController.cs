@@ -47,6 +47,13 @@ namespace BudgetAPI.Controllers
             return accountsPostings;
         }
 
+        [HttpGet("latest-di-rate/{accountId}")]
+        public async Task<ActionResult<AccountsPostings>> GetLatestDiRate(int accountId)
+        {
+            var posting = await _accountPostingService.GetLatestDiRate(accountId);
+            return posting == null ? NotFound() : Ok(posting);
+        }
+
         // PUT: api/AccountsPostings/5
         [HttpPut("{id}")]
         public async Task<IActionResult> PutAccountsPostings(int id, AccountsPostings accountsPostings)

@@ -12,6 +12,7 @@ namespace BudgetAPI.Services
         IQueryable<AccountsPostings> GetAccountsPostings();
         IQueryable<AccountsPostings> GetAccountsPostings(int id);
         IQueryable<AccountsPostings> GetAccountsPostings(int accountId, string reference);
+        Task<AccountsPostings?> GetLatestDiRate(int accountId);
         Task<int> PutAccountsPostings(AccountsPostings accountPosting);
         Task<int> PostAccountsPostings(AccountsPostings accountsPostings);
         Task<int> DeleteAccountsPostings(AccountsPostings accountsPostings);
@@ -68,6 +69,30 @@ namespace BudgetAPI.Services
             return accountsPostings;
         }
 
+        public Task<AccountsPostings?> GetLatestDiRate(int accountId)
+        {
+            return _context.AccountsPostings
+                .Where(posting => posting.AccountId == accountId
+                    && posting.Account!.UserId == _user.Id
+                    && posting.Type == "Y"
+                    && posting.DiRatePercent.HasValue
+                    && posting.DiRateDate.HasValue)
+                .OrderByDescending(posting => posting.Date)
+                .ThenByDescending(posting => posting.Position)
+                .Select(posting => new AccountsPostings
+                {
+                    AccountId = posting.AccountId,
+                    Date = posting.DiRateDate!.Value,
+                    Reference = posting.Reference,
+                    Description = posting.Description,
+                    Amount = posting.Amount,
+                    DiRatePercent = posting.DiRatePercent,
+                    DiRateDate = posting.DiRateDate,
+                    DiRateFallback = posting.DiRateFallback
+                })
+                .FirstOrDefaultAsync();
+        }
+
         // Método auxiliar para identificar transferências
         private bool IsTransfer(AccountsPostings posting)
         {
@@ -91,6 +116,9 @@ namespace BudgetAPI.Services
             posting.TotalIOF          = null;
             posting.TotalIR           = null;
             posting.IOFElapsedDays    = null;
+            posting.DiRatePercent    = null;
+            posting.DiRateDate       = null;
+            posting.DiRateFallback   = null;
         }
 
         private async Task ValidatePostingReferencesAsync(AccountsPostings posting)
@@ -124,6 +152,9 @@ namespace BudgetAPI.Services
                 TotalGrossBalance = posting.TotalGrossBalance,
                 TotalIOF = posting.TotalIOF,
                 TotalIR = posting.TotalIR,
+                DiRatePercent = posting.DiRatePercent,
+                DiRateDate = posting.DiRateDate,
+                DiRateFallback = posting.DiRateFallback,
                 IOFElapsedDays = posting.IOFElapsedDays,
                 ApplicationDetails = (posting.ApplicationDetails ?? new List<AccountsPostingApplicationDetails>())
                     .Select(detail => new AccountsPostingApplicationDetails
@@ -485,7 +516,16 @@ namespace BudgetAPI.Services
             AccountsPostings submittedYield = CaptureYieldPayload(accountsPostings);
             List<AccountsPostingApplicationDetails> applicationDetails = await PrepareYieldApplicationDetailsAsync(accountsPostings);
 
+            decimal? storedDiRatePercent = entity.DiRatePercent;
+            DateTime? storedDiRateDate = entity.DiRateDate;
+            bool? storedDiRateFallback = entity.DiRateFallback;
             _context.Entry(entity).CurrentValues.SetValues(accountsPostings);
+            if (string.Equals(entity.Type, "Y", StringComparison.OrdinalIgnoreCase))
+            {
+                entity.DiRatePercent ??= storedDiRatePercent;
+                entity.DiRateDate ??= storedDiRateDate;
+                entity.DiRateFallback ??= storedDiRateFallback;
+            }
 
             if (applicationDetails.Count > 0 && string.Equals(entity.Type, "Y", StringComparison.OrdinalIgnoreCase))
             {
