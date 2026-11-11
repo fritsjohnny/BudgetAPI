@@ -33,7 +33,7 @@ namespace BudgetAPI.Data
             modelBuilder.Entity<CardsPostingsPeople>().ToTable("CardsPostingsPeople").HasNoKey();
             modelBuilder.Entity<BudgetTotals>().ToTable("GetBudgetTotals").HasNoKey();
             modelBuilder.Entity<ExpensesByCategories>().ToTable("GetExpensesByCategories").HasNoKey();
-            modelBuilder.Entity<ExpensesDTO>().ToTable("GetMyExpenses").HasNoKey();
+            modelBuilder.Entity<MyExpensesFunctionRow>().ToTable("GetMyExpenses").HasNoKey();
             modelBuilder.Entity<AccountsYieldsDTO>().ToTable("GetAccountsYields").HasNoKey();
             modelBuilder.Entity<AnnualSavingsMonthProjectionDTO>().ToTable("GetAnnualSavings").HasNoKey();
             modelBuilder.Entity<AnnualSavingsConsolidatedDTO>().ToTable("GetAnnualSavingsConsolidated").HasNoKey();
@@ -156,7 +156,7 @@ namespace BudgetAPI.Data
         public IQueryable<CardsPostingsPeople> GetCardsPostingsPeople(int cardId, string reference, int userId) => FromExpression(() => GetCardsPostingsPeople(cardId, reference, userId));
         public IQueryable<BudgetTotals> GetBudgetTotals(string reference, int userId) => FromExpression(() => GetBudgetTotals(reference, userId));
         public IQueryable<ExpensesByCategories> GetExpensesByCategories(string reference, int cardId, int userId) => FromExpression(() => GetExpensesByCategories(reference, cardId, userId));
-        public IQueryable<ExpensesDTO> GetMyExpenses(string reference, int userId) => FromExpression(() => GetMyExpenses(reference, userId));
+        public IQueryable<MyExpensesFunctionRow> GetMyExpenses(string reference, int userId) => FromExpression(() => GetMyExpenses(reference, userId));
         public IQueryable<AccountsYieldsDTO> GetAccountsYields(string? reference, int? accountId, int userId) => FromExpression(() => GetAccountsYields(reference, accountId, userId));
         public IQueryable<AnnualSavingsMonthProjectionDTO> GetAnnualSavings(int year, int userId, bool includeCurrentMonth, bool includeNextMonths) => FromExpression(() => GetAnnualSavings(year, userId, includeCurrentMonth, includeNextMonths));
         public IQueryable<AnnualSavingsConsolidatedDTO> GetAnnualSavingsConsolidated(int userId, bool includeCurrentYear, bool includeNextYears, bool includeCurrentMonth, bool includeNextMonths) => FromExpression(() => GetAnnualSavingsConsolidated(userId, includeCurrentYear, includeNextYears, includeCurrentMonth, includeNextMonths));

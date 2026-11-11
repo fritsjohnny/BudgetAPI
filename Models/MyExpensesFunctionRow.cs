@@ -1,0 +1,32 @@
+namespace BudgetAPI.Models
+{
+    // Keep the TVF result shape separate from ExpensesDTO so adding API fields
+    // does not silently change the columns EF expects from dbo.GetMyExpenses.
+    public class MyExpensesFunctionRow
+    {
+        public int Id { get; set; }
+        public int UserId { get; set; }
+        public string? Reference { get; set; }
+        public short? Position { get; set; }
+        public string? Description { get; set; }
+        public decimal ToPay { get; set; }
+        public decimal Paid { get; set; }
+        public decimal Remaining { get; set; }
+        public string? Note { get; set; }
+        public int? CardId { get; set; }
+        public int? AccountId { get; set; }
+        public DateTime? DueDate { get; set; }
+        public int? ParcelNumber { get; set; }
+        public int? Parcels { get; set; }
+        public decimal TotalToPay { get; set; }
+        public int? CategoryId { get; set; }
+        public string? Category { get; set; }
+        public bool? Scheduled { get; set; }
+        public int? PeopleId { get; set; }
+        public int? RelatedId { get; set; }
+        public int? LinkedIncomeId { get; set; }
+        public bool? Fixed { get; set; }
+        public int? DueDay { get; set; }
+        public decimal? ExpectedValue { get; set; }
+    }
+}

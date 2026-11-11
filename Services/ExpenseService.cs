@@ -136,8 +136,35 @@ namespace BudgetAPI.Services
 
         public IQueryable<ExpensesDTO> GetMyExpensesByReference(string reference)
         {
-            IQueryable<ExpensesDTO>? myExpenses = _context.GetMyExpenses(reference, _user.Id)
-                                                          .OrderBy(e => e.Position);
+            IQueryable<ExpensesDTO> myExpenses = _context.GetMyExpenses(reference, _user.Id)
+                .OrderBy(e => e.Position)
+                .Select(e => new ExpensesDTO
+                {
+                    Id = e.Id,
+                    UserId = e.UserId,
+                    Reference = e.Reference,
+                    Position = e.Position,
+                    Description = e.Description,
+                    ToPay = e.ToPay,
+                    Paid = e.Paid,
+                    Remaining = e.Remaining,
+                    Note = e.Note,
+                    CardId = e.CardId,
+                    AccountId = e.AccountId,
+                    DueDate = e.DueDate,
+                    ParcelNumber = e.ParcelNumber,
+                    Parcels = e.Parcels,
+                    TotalToPay = e.TotalToPay,
+                    CategoryId = e.CategoryId,
+                    Category = e.Category,
+                    Scheduled = e.Scheduled,
+                    PeopleId = e.PeopleId,
+                    RelatedId = e.RelatedId,
+                    LinkedIncomeId = e.LinkedIncomeId,
+                    Fixed = e.Fixed,
+                    DueDay = e.DueDay,
+                    ExpectedValue = e.ExpectedValue
+                });
 
             return myExpenses;
         }
