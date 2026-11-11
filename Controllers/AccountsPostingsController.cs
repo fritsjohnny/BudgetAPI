@@ -47,6 +47,29 @@ namespace BudgetAPI.Controllers
             return accountsPostings;
         }
 
+        [HttpGet("ByDateRange")]
+        public async Task<ActionResult<IEnumerable<AccountsPostings>>> GetAccountsPostingsByDateRange(
+            [FromQuery] int accountId,
+            [FromQuery] DateTime initialDate,
+            [FromQuery] DateTime finalDate)
+        {
+            if (accountId <= 0 || initialDate == default || finalDate == default || initialDate.Date > finalDate.Date)
+            {
+                return BadRequest("Informe uma conta e um período válido.");
+            }
+
+            if (!_accountPostingService.ValidateAccountAndUser(accountId))
+            {
+                return BadRequest("Conta inválida ou não pertence ao usuário.");
+            }
+
+            var postings = await _accountPostingService
+                .GetAccountsPostingsByDateRange(accountId, initialDate, finalDate)
+                .ToListAsync();
+
+            return Ok(postings);
+        }
+
         [HttpGet("latest-di-rate/{accountId}")]
         public async Task<ActionResult<AccountsPostings>> GetLatestDiRate(int accountId)
         {

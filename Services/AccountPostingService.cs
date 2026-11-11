@@ -12,6 +12,7 @@ namespace BudgetAPI.Services
         IQueryable<AccountsPostings> GetAccountsPostings();
         IQueryable<AccountsPostings> GetAccountsPostings(int id);
         IQueryable<AccountsPostings> GetAccountsPostings(int accountId, string reference);
+        IQueryable<AccountsPostings> GetAccountsPostingsByDateRange(int accountId, DateTime initialDate, DateTime finalDate);
         Task<AccountsPostings?> GetLatestDiRate(int accountId);
         Task<int> PutAccountsPostings(AccountsPostings accountPosting);
         Task<int> PostAccountsPostings(AccountsPostings accountsPostings);
@@ -67,6 +68,24 @@ namespace BudgetAPI.Services
                                                                                              .OrderBy(a => a.Position);
 
             return accountsPostings;
+        }
+
+        public IQueryable<AccountsPostings> GetAccountsPostingsByDateRange(int accountId, DateTime initialDate, DateTime finalDate)
+        {
+            DateTime start = initialDate.Date;
+            DateTime endExclusive = finalDate.Date.AddDays(1);
+
+            return _context.AccountsPostings
+                .AsNoTracking()
+                .Include(posting => posting.Account)
+                .Include(posting => posting.ApplicationDetails)
+                .Where(posting => posting.AccountId == accountId
+                    && posting.Account!.UserId == _user.Id
+                    && posting.Date >= start
+                    && posting.Date < endExclusive)
+                .OrderBy(posting => posting.Date)
+                .ThenBy(posting => posting.Position)
+                .ThenBy(posting => posting.Id);
         }
 
         public Task<AccountsPostings?> GetLatestDiRate(int accountId)
