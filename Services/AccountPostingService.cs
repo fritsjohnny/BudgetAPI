@@ -129,7 +129,14 @@ namespace BudgetAPI.Services
                 return;
             }
 
-            posting.GrossAmount       = null;
+            bool isTransfer = posting.Type == "T" ||
+                              (posting.Type == "P" || posting.Type == "R") &&
+                              (posting.ToAccountId.HasValue || posting.RelatedId.HasValue);
+
+            if (!isTransfer)
+            {
+                posting.GrossAmount = null;
+            }
             posting.TotalGrossBalance = null;
             posting.TotalBalance      = null;
             posting.TotalIOF          = null;
@@ -698,6 +705,7 @@ namespace BudgetAPI.Services
                 origin.Reference   = request.Reference;
                 origin.Description = descOrigin;
                 origin.Amount      = newAmount * -1;
+                origin.GrossAmount = -Math.Abs(request.GrossAmount ?? newAmount);
                 origin.Note        = request.Note;
                 origin.Type        = "P";
 
@@ -1006,6 +1014,7 @@ namespace BudgetAPI.Services
                 Reference   = accountPosting.Reference,
                 Description = descOrigin,
                 Amount      = amount * -1,
+                GrossAmount = -Math.Abs(accountPosting.GrossAmount ?? amount),
                 Note        = accountPosting.Note,
                 Type        = "P",
                 Position    = originPosition
@@ -1406,7 +1415,8 @@ namespace BudgetAPI.Services
                 }
 
                 balance += posting.Amount;
-                grossBalance += posting.Amount;
+                grossBalance += posting.GrossAmount ?? posting.Amount;
+
             }
 
             return new AccountHistoricalBalanceDTO
