@@ -34,6 +34,12 @@ namespace BudgetAPI.Controllers
             return cardsPostings;
         }
 
+        [HttpGet("ByExpense/{expenseId:int}")]
+        public async Task<ActionResult<IEnumerable<CardsPostings>>> GetCardsPostingsByExpenseId(int expenseId)
+        {
+            return await _cardPostingService.GetCardsPostingsByExpenseId(expenseId).ToListAsync();
+        }
+
         [HttpGet("ByDescription")]
         public async Task<CardsPostings?> ByDescription([FromQuery] string description)
         {

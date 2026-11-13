@@ -12,6 +12,7 @@ namespace BudgetAPI.Services
         IQueryable<CardsPostings> GetCardsPostings();
         IQueryable<CardsPostings> GetCardsPostings(int id);
         IQueryable<CardsPostingsDTO> GetCardsPostingsById(int id);
+        IQueryable<CardsPostings> GetCardsPostingsByExpenseId(int expenseId);
         IQueryable<CardsPostingsDTO> GetCardsPostings(int cardId, string reference);
         Task<CardsPostings?> GetCardsPostingsByDescription(string description);
         Task<List<int>> GetRecentCategoryIdsByDescription(string description, int take = 3);
@@ -200,6 +201,13 @@ namespace BudgetAPI.Services
                                                                              .Where(c => c.Id == id && c.Card!.UserId == _user.Id);
 
             return cardsPostings;
+        }
+
+        public IQueryable<CardsPostings> GetCardsPostingsByExpenseId(int expenseId)
+        {
+            return _context.CardsPostings.Include(c => c.Card)
+                .Where(c => c.ExpenseId == expenseId && c.Card!.UserId == _user.Id)
+                .OrderByDescending(c => c.Date).ThenByDescending(c => c.Position);
         }
 
         public IQueryable<CardsPostingsDTO> GetCardsPostingsById(int id)
