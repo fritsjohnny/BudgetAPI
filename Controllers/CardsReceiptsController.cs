@@ -39,6 +39,12 @@ namespace BudgetAPI.Controllers
             return cardReceipt;
         }
 
+        [HttpGet("ByIncome/{incomeId:int}")]
+        public async Task<ActionResult<IEnumerable<CardReceiptMovementDTO>>> GetCardReceiptsByIncomeId(int incomeId)
+        {
+            return await _cardReceiptService.GetCardReceiptsByIncomeId(incomeId);
+        }
+
         // PUT: api/CardsReceipts/5
         [HttpPut("{id}")]
         public async Task<IActionResult> PutCardsReceipts(int id, CardsReceipts cardsReceipts)

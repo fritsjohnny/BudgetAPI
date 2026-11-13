@@ -9,6 +9,7 @@ namespace BudgetAPI.Services
 	{
 		public IQueryable<CardsReceipts> GetCardReceipts();
 		public IQueryable<CardsReceipts> GetCardReceipts(int id);
+		Task<List<CardReceiptMovementDTO>> GetCardReceiptsByIncomeId(int incomeId);
 		Task<int> PutCardReceipt(CardsReceipts card);
 		Task<int> PostCardReceipt(CardsReceipts card);
 		Task<int> DeleteCardReceipt(CardsReceipts card);
@@ -40,6 +41,49 @@ namespace BudgetAPI.Services
 																   .Where(c => c.Id == id && c.Card!.UserId == _user.Id);
 
 			return card;
+		}
+
+		public async Task<List<CardReceiptMovementDTO>> GetCardReceiptsByIncomeId(int incomeId)
+		{
+			var incomeCard = await _context.Incomes
+				.AsNoTracking()
+				.Where(i => i.Id == incomeId && i.UserId == _user.Id && i.Type == "R" && i.CardId.HasValue)
+				.Select(i => new { i.CardId, i.Reference })
+				.FirstOrDefaultAsync();
+
+			if (incomeCard == null)
+				return new List<CardReceiptMovementDTO>();
+
+			return await _context.CardsReceipts
+				.AsNoTracking()
+				.Where(receipt => receipt.CardId == incomeCard.CardId &&
+				                  receipt.Reference == incomeCard.Reference &&
+				                  receipt.Card!.UserId == _user.Id)
+				.OrderByDescending(receipt => receipt.Date)
+				.ThenByDescending(receipt => receipt.Id)
+				.Select(receipt => new CardReceiptMovementDTO
+				{
+					Id = receipt.Id,
+					Date = receipt.Date,
+					Reference = receipt.Reference,
+					CardId = receipt.CardId,
+					CardName = receipt.Card!.Name,
+					CardBackground = receipt.Card.Background,
+					CardColor = receipt.Card.Color,
+					PeopleId = receipt.PeopleId,
+					PeopleName = _context.People
+						.Where(person => person.Id == receipt.PeopleId && person.UserId == _user.Id)
+						.Select(person => person.Name)
+						.FirstOrDefault(),
+					AccountId = receipt.AccountId,
+					AccountName = _context.Accounts
+						.Where(account => account.Id == receipt.AccountId && account.UserId == _user.Id)
+						.Select(account => account.Name)
+						.FirstOrDefault(),
+					Amount = receipt.Amount,
+					Note = receipt.Note,
+				})
+				.ToListAsync();
 		}
 
 		public async Task<int> PutCardReceipt(CardsReceipts cardReceipt)

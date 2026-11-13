@@ -12,6 +12,7 @@ namespace BudgetAPI.Services
         IQueryable<AccountsPostings> GetAccountsPostings();
         IQueryable<AccountsPostings> GetAccountsPostings(int id);
         IQueryable<AccountsPostings> GetAccountsPostingsByExpenseId(int expenseId);
+        IQueryable<AccountsPostings> GetAccountsPostingsByIncomeId(int incomeId);
         IQueryable<AccountsPostings> GetAccountsPostings(int accountId, string reference);
         IQueryable<AccountsPostings> GetAccountsPostingsByDateRange(int accountId, DateTime initialDate, DateTime finalDate);
         Task<AccountsPostings?> GetLatestDiRate(int accountId);
@@ -66,6 +67,22 @@ namespace BudgetAPI.Services
         {
             return _context.AccountsPostings.Include(a => a.Account)
                 .Where(a => a.ExpenseId == expenseId && a.Account!.UserId == _user.Id)
+                .OrderByDescending(a => a.Date).ThenByDescending(a => a.Position);
+        }
+
+        public IQueryable<AccountsPostings> GetAccountsPostingsByIncomeId(int incomeId)
+        {
+            IQueryable<Incomes> income = _context.Incomes
+                .Where(i => i.Id == incomeId && i.UserId == _user.Id);
+
+            return _context.AccountsPostings.Include(a => a.Account)
+                .Where(posting => posting.Account!.UserId == _user.Id && income.Any(income =>
+                    ((income.Type == "Y" || income.Type == "y") &&
+                     income.AccountId.HasValue &&
+                     income.AccountId.Value == posting.AccountId &&
+                     income.Reference == posting.Reference &&
+                     (posting.Type == "Y" || posting.Type == "y")) ||
+                    ((income.Type != "Y" && income.Type != "y") && posting.IncomeId == income.Id)))
                 .OrderByDescending(a => a.Date).ThenByDescending(a => a.Position);
         }
 
