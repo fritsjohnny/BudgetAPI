@@ -41,27 +41,15 @@ namespace BudgetAPI.Services
 
         public async Task<AccountsDTO> GetAccountTotals(int accountId, string reference)
         {
-            AccountsDTO? accountDto;
-
-            try
-            {
-                accountDto = await _context.GetAccountTotals(accountId, reference, _user.Id).FirstOrDefaultAsync();
-            }
-            catch
-            {
-                accountDto = null;
-            }
+            AccountsDTO? accountDto = await _context
+                .GetAccountTotals(accountId, reference, _user.Id)
+                .FirstOrDefaultAsync();
 
             if (accountDto == null)
             {
-                return new AccountsDTO();
+                throw new InvalidOperationException(
+                    $"A função GetAccountTotals não retornou dados para a conta {accountId} na referência {reference}.");
             }
-
-            accountDto.IsIOFExempt = await _context.Accounts
-                .AsNoTracking()
-                .Where(account => account.Id == accountId && account.UserId == _user.Id)
-                .Select(account => account.IsIOFExempt)
-                .FirstOrDefaultAsync();
 
             return accountDto;
         }
