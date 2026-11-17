@@ -8,7 +8,9 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
-string connectionName = builder.Environment.IsDevelopment() ? "LocalConnection" : "AzureConnection";
+var useProductionConnection = true;
+
+string connectionName = useProductionConnection ? "AzureConnection" : "LocalConnection";
 
 string connectionString = builder.Configuration.GetConnectionString(connectionName) ??
     throw new InvalidOperationException($"A connection string '{connectionName}' não foi configurada.");
