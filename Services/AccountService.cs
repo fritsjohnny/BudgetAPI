@@ -57,6 +57,12 @@ namespace BudgetAPI.Services
                 return new AccountsDTO();
             }
 
+            accountDto.IsIOFExempt = await _context.Accounts
+                .AsNoTracking()
+                .Where(account => account.Id == accountId && account.UserId == _user.Id)
+                .Select(account => account.IsIOFExempt)
+                .FirstOrDefaultAsync();
+
             return accountDto;
         }
 
@@ -226,6 +232,7 @@ namespace BudgetAPI.Services
             saved.YieldIndex = account.YieldIndex;
             saved.IrPercent = account.IrPercent;
             saved.IsTaxExempt = account.IsTaxExempt;
+            saved.IsIOFExempt = account.IsIOFExempt;
             saved.TotalBalanceGross = account.TotalBalanceGross;
 
             return await _context.SaveChangesAsync();

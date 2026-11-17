@@ -40,6 +40,10 @@ namespace BudgetAPI.Models
         /// </summary>
         public bool IsTaxExempt { get; set; }
         /// <summary>
+        /// Indicates that this account's yield is exempt from IOF.
+        /// </summary>
+        public bool IsIOFExempt { get; set; }
+        /// <summary>
         /// Saldo bruto total da conta, incluindo rendimentos antes de impostos.
         /// </summary>
         public decimal? TotalBalanceGross { get; set; }

@@ -652,7 +652,7 @@ public sealed class InvestmentStrategyService : IInvestmentStrategyService
         decimal principal = Math.Max(0, application.AmountApplied);
         decimal grossBalance = Math.Max(0, detail?.TotalGrossBalance ?? principal);
         int ageDays = Math.Max(0, (today - application.DateApplied.Date).Days);
-        decimal iofRate = account.IsTaxExempt ? 0m : IofRate(ageDays);
+        decimal iofRate = account.IsIOFExempt ? 0m : IofRate(ageDays);
         decimal irPercent = account.IsTaxExempt ? 0m : IrPercent(ageDays);
         decimal grossYield = Math.Max(0, grossBalance - principal);
         decimal iof = Math.Round(grossYield * iofRate, 2);
@@ -790,7 +790,7 @@ public sealed class InvestmentStrategyService : IInvestmentStrategyService
         }
 
         int futureAgeDays = Math.Max(0, (source.AgeDays ?? 0) + (projectionDate.Date - projectionStart.Date).Days);
-        decimal iofRate = source.Account.IsTaxExempt ? 0m : IofRate(futureAgeDays);
+        decimal iofRate = source.Account.IsIOFExempt ? 0m : IofRate(futureAgeDays);
         decimal irPercentAtEvaluation = source.Account.IsTaxExempt ? 0m : IrPercent(futureAgeDays);
         decimal accumulatedGrossYield = Math.Max(0, projectedGross.Value - principal);
         decimal iof = accumulatedGrossYield * iofRate;
@@ -870,7 +870,7 @@ public sealed class InvestmentStrategyService : IInvestmentStrategyService
 
     private static Projection ApplyTaxes(Accounts account, decimal principal, decimal grossBalance, int ageDays)
     {
-        decimal iofRate = account.IsTaxExempt ? 0m : IofRate(ageDays);
+        decimal iofRate = account.IsIOFExempt ? 0m : IofRate(ageDays);
         decimal irPercent = account.IsTaxExempt ? 0m : IrPercent(ageDays);
         decimal grossYield = Math.Max(0, grossBalance - principal);
         decimal iof = grossYield * iofRate;

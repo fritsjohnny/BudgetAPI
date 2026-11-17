@@ -48,6 +48,7 @@
         /// Se verdadeiro, ignora o campo IrPercent no cálculo.
         /// </summary>
         public bool IsTaxExempt { get; set; }
+        public bool IsIOFExempt { get; set; }
         /// <summary>
         /// Saldo bruto acumulado até a referência consultada.
         /// </summary>
